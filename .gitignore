@@ -69,3 +69,5 @@ $RECYCLE.BIN/
 logs/
 tmp/
 scratch/
+
+.claude
