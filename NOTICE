@@ -1,0 +1,20 @@
+HEXARA — Island Settlers
+========================
+
+This project is an ORIGINAL implementation of a hex-tile settlement board game.
+It is not affiliated with, endorsed by, or licensed from the publishers of any
+commercial game. Trademarks and copyrighted artwork of any commercial game are
+the property of their respective owners; none of those assets are used here.
+
+All source code, game rules implementation, original SVG artwork
+(under `client/assets/`), and documentation in this repository are original
+works released under the terms of the MIT License (see `LICENSE`).
+
+The project name "HEXARA — Island Settlers" is an original name chosen for
+this implementation.
+
+Third-party tool used at runtime (not redistributed):
+- `cloudflared` — Cloudflare Tunnel client (Apache 2.0). When you run
+  `share.py`, it is downloaded on demand from Cloudflare's official GitHub
+  releases into `./bin/` and executed locally; the binary is not bundled or
+  redistributed with this repository.

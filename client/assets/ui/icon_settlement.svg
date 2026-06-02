@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- settlement: simple house glyph -->
+  <path d="M20 7 L33 17 L33 33 L7 33 L7 17 Z"
+        fill="#3a2a18" stroke="#3a2a18" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M4 18 L20 6 L36 18"
+        fill="none" stroke="#3a2a18" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="16" y="22" width="8" height="11" rx="1" fill="#f3e6c8"/>
+</svg>

@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="mSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe7ee"/>
+      <stop offset="1" stop-color="#aab8c4"/>
+    </linearGradient>
+    <linearGradient id="mFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9aa6b2"/>
+      <stop offset="1" stop-color="#7c8997"/>
+    </linearGradient>
+    <linearGradient id="mLit" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c2cbd4"/>
+      <stop offset="1" stop-color="#8b97a3"/>
+    </linearGradient>
+    <linearGradient id="mShade" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6b7785"/>
+      <stop offset="1" stop-color="#48535f"/>
+    </linearGradient>
+    <radialGradient id="mGlow" cx="0.3" cy="0.16" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#mSky)"/>
+  <rect width="200" height="200" fill="url(#mGlow)"/>
+  <!-- far range -->
+  <path d="M0 118 L40 70 L74 110 L108 64 L150 112 L200 74 L200 200 L0 200 Z" fill="url(#mFar)" stroke="#69757f" stroke-width="2"/>
+  <!-- snow caps on far -->
+  <g fill="#eef3f7" stroke="none" opacity="0.85">
+    <path d="M40 70 L31 82 L50 82 Z"/>
+    <path d="M108 64 L98 78 L120 78 Z"/>
+  </g>
+  <!-- front-left peak (shaded right face) -->
+  <path d="M0 200 L0 132 L58 52 L120 200 Z" fill="url(#mShade)" stroke="#3a444e" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- front-left peak lit face -->
+  <path d="M58 52 L0 132 L0 200 L26 200 L58 96 Z" fill="url(#mLit)" stroke="#3a444e" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- right peak -->
+  <path d="M200 200 L200 120 L150 70 L96 200 Z" fill="url(#mShade)" stroke="#3a444e" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M150 70 L96 200 L124 200 L150 116 Z" fill="url(#mLit)" stroke="#3a444e" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- snow caps front -->
+  <g fill="#f3f7fb" stroke="#cdd6de" stroke-width="1.2" stroke-linejoin="round">
+    <path d="M58 52 L44 72 L52 70 L60 76 L70 70 Z"/>
+    <path d="M150 70 L138 88 L146 86 L154 92 L162 86 Z"/>
+  </g>
+  <!-- ore veins (golden/copper) on shaded faces -->
+  <g stroke="#caa34a" stroke-width="2.4" fill="none" stroke-linecap="round" opacity="0.95">
+    <path d="M66 110 L78 126 L72 140 L86 156"/>
+    <path d="M150 120 L160 136 L154 150"/>
+  </g>
+  <g stroke="#e7c66e" stroke-width="1.1" fill="none" stroke-linecap="round">
+    <path d="M66 110 L78 126 L72 140 L86 156"/>
+    <path d="M150 120 L160 136 L154 150"/>
+  </g>
+  <!-- ore nuggets / crystals -->
+  <g stroke="#7a5e1f" stroke-width="1.4" stroke-linejoin="round">
+    <path d="M80 150 l6 -7 l7 5 l-3 8 l-8 1 Z" fill="#d9b455"/>
+    <path d="M156 146 l5 -6 l6 4 l-2 7 l-7 1 Z" fill="#c9a447"/>
+  </g>
+  <!-- crevice shading lines -->
+  <g stroke="#3a444e" stroke-width="1.6" fill="none" opacity="0.55" stroke-linecap="round">
+    <path d="M30 110 L40 140 L30 170"/>
+    <path d="M120 110 L132 150"/>
+  </g>
+  <!-- rubble at base -->
+  <g fill="#5a6671" stroke="#3a444e" stroke-width="1.2">
+    <path d="M10 188 l8 -6 l9 5 l-2 9 l-12 0 Z"/>
+    <path d="M178 190 l7 -5 l8 5 l-2 8 l-11 -1 Z"/>
+  </g>
+</svg>

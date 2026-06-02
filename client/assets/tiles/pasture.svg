@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="pSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d6eef0"/>
+      <stop offset="1" stop-color="#aee0c2"/>
+    </linearGradient>
+    <linearGradient id="pField" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9fd25a"/>
+      <stop offset="1" stop-color="#5d9b35"/>
+    </linearGradient>
+    <linearGradient id="pField2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8cc44e"/>
+      <stop offset="1" stop-color="#4d8a2c"/>
+    </linearGradient>
+    <radialGradient id="pGlow" cx="0.3" cy="0.16" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="pWool" cx="0.4" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#fffdf6"/>
+      <stop offset="1" stop-color="#e2dccb"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#pSky)"/>
+  <rect width="200" height="200" fill="url(#pGlow)"/>
+  <!-- rolling hills -->
+  <path d="M0 78 Q60 56 120 74 T200 70 L200 200 L0 200 Z" fill="url(#pField2)" stroke="#3c6f22" stroke-width="2"/>
+  <path d="M0 120 Q70 92 150 112 T200 108 L200 200 L0 200 Z" fill="url(#pField)" stroke="#3c6f22" stroke-width="2.2"/>
+  <!-- grass contour highlights -->
+  <g fill="none" stroke="#c4ec88" stroke-width="2" opacity="0.5" stroke-linecap="round">
+    <path d="M8 112 Q70 86 148 106"/>
+    <path d="M6 150 Q60 132 120 146"/>
+  </g>
+  <!-- subtle grass tufts -->
+  <g stroke="#3c6f22" stroke-width="1.6" stroke-linecap="round" opacity="0.6">
+    <path d="M26 168 v-8 M30 168 v-11 M34 168 v-8"/>
+    <path d="M160 156 v-8 M164 156 v-11 M168 156 v-8"/>
+  </g>
+  <!-- wooden fence, top-left to right -->
+  <g stroke="#5a3a1c" stroke-width="2" stroke-linejoin="round">
+    <g fill="#8a5a2c">
+      <rect x="20" y="92" width="7" height="30" rx="2"/>
+      <rect x="58" y="86" width="7" height="30" rx="2"/>
+      <rect x="96" y="90" width="7" height="30" rx="2"/>
+    </g>
+    <path d="M21 98 L99 96 M21 110 L99 108" fill="none" stroke="#a06c38" stroke-width="5" stroke-linecap="round"/>
+    <path d="M21 98 L99 96 M21 110 L99 108" fill="none" stroke="#5a3a1c" stroke-width="1.4"/>
+  </g>
+  <!-- sheep -->
+  <g stroke="#3a2a18" stroke-width="2.2" stroke-linejoin="round">
+    <ellipse cx="120" cy="170" rx="12" ry="6" fill="#2f5a22" stroke="none" opacity="0.45"/>
+    <!-- legs -->
+    <g stroke="#4a4a4a" stroke-width="4" stroke-linecap="round">
+      <path d="M111 158 v12 M122 160 v12"/>
+    </g>
+    <!-- woolly body -->
+    <path d="M104 150 a9 9 0 0 1 6 -14 a10 10 0 0 1 18 -2 a9 9 0 0 1 9 12 a8 8 0 0 1 -7 11 q-14 4 -27 -1 a8 8 0 0 1 1 -6 Z" fill="url(#pWool)"/>
+    <!-- head -->
+    <ellipse cx="139" cy="146" rx="8" ry="7" fill="#54493e"/>
+    <circle cx="142" cy="145" r="1.6" fill="#241c14" stroke="none"/>
+    <path d="M133 142 q-4 -3 -2 4" fill="#54493e"/>
+    <path d="M146 142 q4 -3 2 4" fill="#54493e"/>
+  </g>
+  <!-- small flowers -->
+  <g>
+    <circle cx="46" cy="186" r="3" fill="#f4e08a" stroke="#b89a3a" stroke-width="1"/>
+    <circle cx="178" cy="180" r="3" fill="#f0f4ff" stroke="#9aa6c0" stroke-width="1"/>
+    <circle cx="80" cy="192" r="3" fill="#f4e08a" stroke="#b89a3a" stroke-width="1"/>
+  </g>
+</svg>

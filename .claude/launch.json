@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "hexara",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["-3", "-m", "server.app", "8000"],
+      "port": 8000
+    }
+  ]
+}

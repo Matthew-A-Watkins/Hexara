@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 168">
+  <defs>
+    <linearGradient id="mf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6a55c0"/>
+      <stop offset="1" stop-color="#2a1f5e"/>
+    </linearGradient>
+    <linearGradient id="mp" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eef0f6"/>
+      <stop offset="1" stop-color="#d4cfe2"/>
+    </linearGradient>
+    <linearGradient id="mgold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4d877"/>
+      <stop offset="1" stop-color="#b8902e"/>
+    </linearGradient>
+    <linearGradient id="mhand" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#e8c79c"/>
+      <stop offset="1" stop-color="#b07f4f"/>
+    </linearGradient>
+    <radialGradient id="mcoin" cx="0.4" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#fbe79a"/>
+      <stop offset="1" stop-color="#c79a2a"/>
+    </radialGradient>
+    <filter id="ms" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0.7" dy="1.6" stdDeviation="1.4" flood-color="#1a1230" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="112" height="160" rx="13" fill="#241a4a"/>
+  <rect x="5.5" y="5.5" width="109" height="157" rx="12" fill="url(#mf)"/>
+  <rect x="9" y="9" width="102" height="150" rx="10" fill="none" stroke="url(#mgold)" stroke-width="1.3" opacity="0.85"/>
+  <rect x="12" y="12" width="96" height="144" rx="8" fill="#1a1230" opacity="0.35"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="url(#mp)"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="none" stroke="#3a2f6e" stroke-width="1.2" opacity="0.45"/>
+  <!-- scattered coins on table -->
+  <g stroke="#9a7420" stroke-width="0.8">
+    <ellipse cx="40" cy="112" rx="9" ry="4" fill="url(#mcoin)"/>
+    <ellipse cx="78" cy="116" rx="9" ry="4" fill="url(#mcoin)"/>
+    <ellipse cx="58" cy="118" rx="9" ry="4" fill="url(#mcoin)"/>
+    <ellipse cx="40" cy="109" rx="9" ry="4" fill="url(#mcoin)"/>
+  </g>
+  <g filter="url(#ms)">
+    <g transform="translate(60 72)">
+      <!-- grasping hand reaching down -->
+      <!-- forearm -->
+      <path d="M-16,-44 L16,-44 L14,-6 L-14,-6 Z" fill="url(#mhand)" stroke="#8a5e35" stroke-width="1.4"/>
+      <!-- palm -->
+      <path d="M-18,-10 C-18,2 -12,16 0,18 C12,16 18,2 18,-10 Z" fill="url(#mhand)" stroke="#8a5e35" stroke-width="1.6"/>
+      <!-- curling fingers (grabbing) -->
+      <g fill="url(#mhand)" stroke="#8a5e35" stroke-width="1.4" stroke-linejoin="round">
+        <path d="M-18,-8 C-26,-4 -28,8 -18,12 C-14,8 -14,2 -14,-4 Z"/>
+        <path d="M18,-8 C26,-4 28,8 18,12 C14,8 14,2 14,-4 Z"/>
+        <path d="M-9,14 C-12,24 -6,30 -2,26 C-3,22 -4,18 -4,14 Z"/>
+        <path d="M9,14 C12,24 6,30 2,26 C3,22 4,18 4,14 Z"/>
+        <path d="M0,16 C-1,27 4,31 6,27 C5,22 4,18 3,15 Z"/>
+      </g>
+      <!-- thumb -->
+      <path d="M-18,-2 C-28,0 -30,10 -22,14 C-18,10 -16,4 -15,-2 Z" fill="url(#mhand)" stroke="#8a5e35" stroke-width="1.4"/>
+      <!-- knuckle highlights -->
+      <g fill="#f2dcc0" opacity="0.55">
+        <ellipse cx="-6" cy="-2" rx="5" ry="7"/>
+        <ellipse cx="6" cy="-2" rx="4" ry="6"/>
+      </g>
+      <!-- a clutched coin -->
+      <circle cx="0" cy="8" r="7.5" fill="url(#mcoin)" stroke="#9a7420" stroke-width="1.2"/>
+      <text x="0" y="12" font-family="Georgia, serif" font-size="9" font-weight="bold" text-anchor="middle" fill="#9a7420">$</text>
+    </g>
+  </g>
+  <rect x="22" y="132" width="76" height="20" rx="6" fill="url(#mgold)"/>
+  <rect x="22" y="132" width="76" height="20" rx="6" fill="none" stroke="#8c6a1e" stroke-width="1"/>
+  <text x="60" y="146.3" font-family="Georgia, serif" font-size="11.5" font-weight="bold" letter-spacing="1" text-anchor="middle" fill="#2a1f5e">MONOPOLY</text>
+</svg>

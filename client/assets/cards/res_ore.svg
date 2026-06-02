@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 168">
+  <defs>
+    <linearGradient id="of" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9aa6b4"/>
+      <stop offset="1" stop-color="#4e5762"/>
+    </linearGradient>
+    <linearGradient id="op" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8efd6"/>
+      <stop offset="1" stop-color="#ead9b3"/>
+    </linearGradient>
+    <linearGradient id="orock" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#aab3bf"/>
+      <stop offset="0.55" stop-color="#6b7785"/>
+      <stop offset="1" stop-color="#434a54"/>
+    </linearGradient>
+    <filter id="os" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0.7" dy="1.6" stdDeviation="1.4" flood-color="#2a1c0e" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="112" height="160" rx="13" fill="#3a2a18"/>
+  <rect x="5.5" y="5.5" width="109" height="157" rx="12" fill="url(#of)"/>
+  <rect x="12" y="12" width="96" height="144" rx="8" fill="#3a2a18" opacity="0.35"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="url(#op)"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="none" stroke="#4e5762" stroke-width="1.4" opacity="0.5"/>
+  <g filter="url(#os)">
+    <g transform="translate(60 80)">
+      <ellipse cx="2" cy="32" rx="34" ry="7" fill="#3a2a18" opacity="0.22"/>
+      <!-- main ore chunk: faceted rock -->
+      <polygon points="-34,6 -20,-22 6,-30 30,-14 34,12 14,32 -16,30" fill="url(#orock)" stroke="#363c45" stroke-width="1.6"/>
+      <!-- top-left lit facets -->
+      <polygon points="-34,6 -20,-22 -4,-12 -10,10" fill="#b8c0cb" opacity="0.85"/>
+      <polygon points="-20,-22 6,-30 14,-14 -4,-12" fill="#aeb7c2" opacity="0.7"/>
+      <!-- right shaded facets -->
+      <polygon points="30,-14 34,12 16,18 14,-14" fill="#3f464f" opacity="0.55"/>
+      <polygon points="14,32 34,12 16,18" fill="#363c45" opacity="0.6"/>
+      <!-- facet seams -->
+      <g stroke="#3a4049" stroke-width="1.1" opacity="0.6" fill="none">
+        <path d="M-4,-12 L-10,10 L-16,30"/>
+        <path d="M-4,-12 L14,-14 L16,18"/>
+        <path d="M14,-14 L30,-14"/>
+      </g>
+      <!-- ore veins (metallic) -->
+      <g stroke="#e3b23c" stroke-width="2" stroke-linecap="round" opacity="0.92">
+        <path d="M-14,-2 L-2,4 L8,2" fill="none"/>
+        <path d="M-22,12 L-12,16" fill="none"/>
+      </g>
+      <circle cx="-2" cy="4" r="2.1" fill="#f4cf6e"/>
+      <circle cx="8" cy="2" r="1.6" fill="#f4cf6e"/>
+      <circle cx="-21" cy="11" r="1.5" fill="#cfd6df"/>
+    </g>
+  </g>
+  <rect x="36" y="130" width="48" height="20" rx="6" fill="#4e5762"/>
+  <rect x="36" y="130" width="48" height="20" rx="6" fill="none" stroke="#333a43" stroke-width="1"/>
+  <text x="60" y="144.5" font-family="Georgia, serif" font-size="13" font-weight="bold" letter-spacing="2" text-anchor="middle" fill="#f3e6c8">ORE</text>
+</svg>

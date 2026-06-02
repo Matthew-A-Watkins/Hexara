@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 168">
+  <defs>
+    <linearGradient id="rf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6a55c0"/>
+      <stop offset="1" stop-color="#2a1f5e"/>
+    </linearGradient>
+    <linearGradient id="rp" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#eef0f6"/>
+      <stop offset="1" stop-color="#d4cfe2"/>
+    </linearGradient>
+    <linearGradient id="rgold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4d877"/>
+      <stop offset="1" stop-color="#b8902e"/>
+    </linearGradient>
+    <linearGradient id="rroad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9aa3b3"/>
+      <stop offset="1" stop-color="#5a6473"/>
+    </linearGradient>
+    <filter id="rs" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0.7" dy="1.6" stdDeviation="1.4" flood-color="#1a1230" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <rect x="4" y="4" width="112" height="160" rx="13" fill="#241a4a"/>
+  <rect x="5.5" y="5.5" width="109" height="157" rx="12" fill="url(#rf)"/>
+  <rect x="9" y="9" width="102" height="150" rx="10" fill="none" stroke="url(#rgold)" stroke-width="1.3" opacity="0.85"/>
+  <rect x="12" y="12" width="96" height="144" rx="8" fill="#1a1230" opacity="0.35"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="url(#rp)"/>
+  <rect x="12.5" y="12.5" width="95" height="143" rx="8" fill="none" stroke="#3a2f6e" stroke-width="1.2" opacity="0.45"/>
+  <!-- grassy ground tint -->
+  <path d="M12.5,108 Q60,98 107.5,108 L107.5,155.5 Q60,155.5 12.5,155.5 Z" fill="#cfd8c2" opacity="0.45"/>
+  <g filter="url(#rs)" transform="translate(60 78)">
+    <!-- two crossing paved roads forming an X -->
+    <g transform="rotate(35)">
+      <rect x="-13" y="-52" width="26" height="104" rx="3" fill="url(#rroad)" stroke="#454e5d" stroke-width="1.6"/>
+      <!-- cobble joints -->
+      <g stroke="#454e5d" stroke-width="1" opacity="0.55">
+        <line x1="-13" y1="-36" x2="13" y2="-36"/>
+        <line x1="-13" y1="-18" x2="13" y2="-18"/>
+        <line x1="-13" y1="18" x2="13" y2="18"/>
+        <line x1="-13" y1="36" x2="13" y2="36"/>
+        <line x1="0" y1="-52" x2="0" y2="-40"/>
+        <line x1="0" y1="40" x2="0" y2="52"/>
+      </g>
+      <rect x="-11" y="-50" width="4" height="100" rx="2" fill="#c2cad6" opacity="0.55"/>
+    </g>
+    <g transform="rotate(-35)">
+      <rect x="-13" y="-52" width="26" height="104" rx="3" fill="url(#rroad)" stroke="#454e5d" stroke-width="1.6"/>
+      <g stroke="#454e5d" stroke-width="1" opacity="0.55">
+        <line x1="-13" y1="-36" x2="13" y2="-36"/>
+        <line x1="-13" y1="-18" x2="13" y2="-18"/>
+        <line x1="-13" y1="18" x2="13" y2="18"/>
+        <line x1="-13" y1="36" x2="13" y2="36"/>
+      </g>
+      <rect x="-11" y="-50" width="4" height="100" rx="2" fill="#c2cad6" opacity="0.5"/>
+    </g>
+    <!-- center cap stone -->
+    <circle cx="0" cy="0" r="9" fill="#7c8694" stroke="#454e5d" stroke-width="1.6"/>
+    <circle cx="-2.4" cy="-2.4" r="3" fill="#b8c0cb" opacity="0.7"/>
+  </g>
+  <rect x="16" y="132" width="88" height="20" rx="6" fill="url(#rgold)"/>
+  <rect x="16" y="132" width="88" height="20" rx="6" fill="none" stroke="#8c6a1e" stroke-width="1"/>
+  <text x="60" y="146.3" font-family="Georgia, serif" font-size="10.5" font-weight="bold" letter-spacing="1" text-anchor="middle" fill="#2a1f5e">ROAD BUILDING</text>
+</svg>

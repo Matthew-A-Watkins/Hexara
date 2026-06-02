@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="dSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fdeecb"/>
+      <stop offset="1" stop-color="#f6d99a"/>
+    </linearGradient>
+    <linearGradient id="dSandA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f1d79b"/>
+      <stop offset="1" stop-color="#d8b56a"/>
+    </linearGradient>
+    <linearGradient id="dSandB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9cb86"/>
+      <stop offset="1" stop-color="#c9a253"/>
+    </linearGradient>
+    <linearGradient id="dSandC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dcbc72"/>
+      <stop offset="1" stop-color="#bb9244"/>
+    </linearGradient>
+    <radialGradient id="dSun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff7e0"/>
+      <stop offset="0.7" stop-color="#ffeebb"/>
+      <stop offset="1" stop-color="#ffeebb" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#dSky)"/>
+  <!-- pale sun -->
+  <circle cx="46" cy="40" r="40" fill="url(#dSun)"/>
+  <circle cx="46" cy="40" r="14" fill="#fff6da"/>
+  <!-- dunes, back to front -->
+  <path d="M0 104 Q70 80 130 100 T200 96 L200 200 L0 200 Z" fill="url(#dSandC)" stroke="#a67e36" stroke-width="2"/>
+  <path d="M0 138 Q60 112 120 130 Q160 142 200 122 L200 200 L0 200 Z" fill="url(#dSandB)" stroke="#a67e36" stroke-width="2.2"/>
+  <path d="M0 172 Q70 146 130 164 Q170 176 200 160 L200 200 L0 200 Z" fill="url(#dSandA)" stroke="#a67e36" stroke-width="2.4"/>
+  <!-- windblown ripple highlights -->
+  <g fill="none" stroke="#fbeec0" stroke-width="2" opacity="0.6" stroke-linecap="round">
+    <path d="M10 132 Q60 108 118 126"/>
+    <path d="M8 166 Q66 142 126 158"/>
+  </g>
+  <g fill="none" stroke="#b08a3e" stroke-width="1.4" opacity="0.5" stroke-linecap="round">
+    <path d="M30 150 q20 -6 40 0"/>
+    <path d="M120 178 q24 -7 48 0"/>
+    <path d="M150 144 q16 -5 32 0"/>
+  </g>
+  <!-- cactus -->
+  <g stroke="#2f6b33" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round">
+    <ellipse cx="118" cy="172" rx="20" ry="6" fill="#9a7636" stroke="none" opacity="0.4"/>
+    <path d="M112 172 v-44 a6 6 0 0 1 12 0 v44 Z" fill="#3f8a45"/>
+    <!-- left arm -->
+    <path d="M112 150 h-10 a5 5 0 0 0 -5 5 v8" fill="none" stroke="#3f8a45" stroke-width="9"/>
+    <!-- right arm -->
+    <path d="M124 142 h9 a5 5 0 0 1 5 5 v12" fill="none" stroke="#3f8a45" stroke-width="9"/>
+    <!-- lit edge -->
+    <path d="M114 130 v40" fill="none" stroke="#6fb86f" stroke-width="2.2" opacity="0.7"/>
+    <!-- spines/ribs -->
+    <g stroke="#2f6b33" stroke-width="1" opacity="0.7">
+      <path d="M118 132 v36 M99 158 v8 M137 150 v10"/>
+    </g>
+    <!-- tiny flower -->
+    <circle cx="118" cy="126" r="3.4" fill="#e8688a" stroke="#a84a64" stroke-width="1"/>
+  </g>
+  <!-- bleached bones / rocks -->
+  <g>
+    <path d="M38 184 q-6 -4 0 -8 q6 -4 12 0 q6 4 0 8 q-6 4 -12 0 Z" fill="#efe3c4" stroke="#c2ad7d" stroke-width="1.4"/>
+    <ellipse cx="170" cy="188" rx="9" ry="5" fill="#cdae6e" stroke="#a6843e" stroke-width="1.4"/>
+    <circle cx="60" cy="150" r="3" fill="#bb9244"/>
+  </g>
+</svg>

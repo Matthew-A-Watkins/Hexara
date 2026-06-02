@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="wSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe9b0"/>
+      <stop offset="0.6" stop-color="#ffd587"/>
+      <stop offset="1" stop-color="#f6b85e"/>
+    </linearGradient>
+    <linearGradient id="wField" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3cb5e"/>
+      <stop offset="1" stop-color="#c98e28"/>
+    </linearGradient>
+    <linearGradient id="wRowL" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe487"/>
+      <stop offset="1" stop-color="#e0aa3c"/>
+    </linearGradient>
+    <linearGradient id="wRowD" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6b545"/>
+      <stop offset="1" stop-color="#b67f22"/>
+    </linearGradient>
+    <radialGradient id="wSun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff6d8"/>
+      <stop offset="0.7" stop-color="#ffe49a"/>
+      <stop offset="1" stop-color="#ffe49a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#wSky)"/>
+  <!-- warm sun glow top-left -->
+  <circle cx="44" cy="40" r="46" fill="url(#wSun)"/>
+  <circle cx="44" cy="40" r="16" fill="#fff3cf"/>
+  <!-- distant hills -->
+  <path d="M0 74 Q70 58 130 70 T200 66 L200 92 L0 92 Z" fill="#d8a84e" opacity="0.7"/>
+  <!-- field base -->
+  <path d="M0 80 Q60 70 100 76 T200 74 L200 200 L0 200 Z" fill="url(#wField)" stroke="#9a6f20" stroke-width="2"/>
+  <!-- perspective furrows (converging rows) -->
+  <g stroke="#a87a24" stroke-width="2" opacity="0.55">
+    <path d="M100 84 L8 200"/>
+    <path d="M100 84 L52 200"/>
+    <path d="M100 84 L100 200"/>
+    <path d="M100 84 L148 200"/>
+    <path d="M100 84 L192 200"/>
+  </g>
+  <!-- wheat clumps in staggered rows -->
+  <g stroke="#7a5616" stroke-width="1.4" stroke-linecap="round">
+    <!-- a reusable stalk drawn many times via groups -->
+    <g fill="url(#wRowD)">
+      <g transform="translate(34 120)"><path d="M0 0 v-18 M0 -18 l-5 -4 M0 -18 l5 -4 M0 -12 l-5 -3 M0 -12 l5 -3 M0 -6 l-5 -3 M0 -6 l5 -3"/></g>
+      <g transform="translate(96 116)"><path d="M0 0 v-18 M0 -18 l-5 -4 M0 -18 l5 -4 M0 -12 l-5 -3 M0 -12 l5 -3 M0 -6 l-5 -3 M0 -6 l5 -3"/></g>
+      <g transform="translate(160 122)"><path d="M0 0 v-18 M0 -18 l-5 -4 M0 -18 l5 -4 M0 -12 l-5 -3 M0 -12 l5 -3 M0 -6 l-5 -3 M0 -6 l5 -3"/></g>
+    </g>
+    <g fill="url(#wRowL)">
+      <g transform="translate(20 152)"><path d="M0 0 v-24 M0 -24 l-6 -5 M0 -24 l6 -5 M0 -16 l-6 -4 M0 -16 l6 -4 M0 -8 l-6 -4 M0 -8 l6 -4"/></g>
+      <g transform="translate(64 158)"><path d="M0 0 v-24 M0 -24 l-6 -5 M0 -24 l6 -5 M0 -16 l-6 -4 M0 -16 l6 -4 M0 -8 l-6 -4 M0 -8 l6 -4"/></g>
+      <g transform="translate(118 158)"><path d="M0 0 v-24 M0 -24 l-6 -5 M0 -24 l6 -5 M0 -16 l-6 -4 M0 -16 l6 -4 M0 -8 l-6 -4 M0 -8 l6 -4"/></g>
+      <g transform="translate(170 156)"><path d="M0 0 v-24 M0 -24 l-6 -5 M0 -24 l6 -5 M0 -16 l-6 -4 M0 -16 l6 -4 M0 -8 l-6 -4 M0 -8 l6 -4"/></g>
+    </g>
+    <g fill="url(#wRowL)" stroke-width="1.7">
+      <g transform="translate(40 196)"><path d="M0 0 v-30 M0 -30 l-7 -6 M0 -30 l7 -6 M0 -20 l-7 -5 M0 -20 l7 -5 M0 -10 l-7 -5 M0 -10 l7 -5"/></g>
+      <g transform="translate(100 200)"><path d="M0 0 v-30 M0 -30 l-7 -6 M0 -30 l7 -6 M0 -20 l-7 -5 M0 -20 l7 -5 M0 -10 l-7 -5 M0 -10 l7 -5"/></g>
+      <g transform="translate(158 196)"><path d="M0 0 v-30 M0 -30 l-7 -6 M0 -30 l7 -6 M0 -20 l-7 -5 M0 -20 l7 -5 M0 -10 l-7 -5 M0 -10 l7 -5"/></g>
+    </g>
+  </g>
+</svg>

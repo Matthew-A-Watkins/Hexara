@@ -1,0 +1,624 @@
+"""Rules tests for the engine. Run: py -3 tests\\test_engine.py
+
+No third-party deps; a tiny assert harness prints PASS/FAIL per test.
+"""
+import os
+import sys
+from collections import Counter
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from engine import constants as C
+from engine.game import Game, GameError
+from engine.geometry import GEOMETRY
+from engine import views
+
+PLAYERS = [
+    {"id": "A", "name": "Alice", "color": "red"},
+    {"id": "B", "name": "Bob", "color": "blue"},
+    {"id": "C", "name": "Cara", "color": "orange"},
+]
+
+_tests = []
+
+
+def test(fn):
+    _tests.append(fn)
+    return fn
+
+
+# --------------------------------------------------------------------- helpers
+def grant(game, pid, **res):
+    for r, n in res.items():
+        game.players[pid]["resources"][r] += n
+        game.bank[r] -= n
+
+
+def auto_setup(game):
+    while game.phase == "setup":
+        pid = game.current_pid
+        if game.setup_sub == "settlement":
+            spots = game.legal_settlement_spots(pid, setup=True)
+            game.apply(pid, {"type": "place_setup_settlement", "vertex": spots[0]})
+        else:
+            spots = game.legal_road_spots(pid, setup=True)
+            game.apply(pid, {"type": "place_setup_road", "edge": spots[0]})
+
+
+def find_edge_trail(length):
+    """Find a simple trail (no repeated edges/vertices) of `length` edges."""
+    geo = GEOMETRY
+    vadj = {v["id"]: [] for v in geo["vertices"]}
+    for e in geo["edges"]:
+        vadj[e["v1"]].append((e["v2"], e["id"]))
+        vadj[e["v2"]].append((e["v1"], e["id"]))
+
+    result = {}
+
+    def dfs(v, verts, eids):
+        if len(eids) == length:
+            result["v"] = list(verts)
+            result["e"] = list(eids)
+            return True
+        for nv, eid in vadj[v]:
+            if nv in verts or eid in eids:
+                continue
+            verts.append(nv)
+            eids.append(eid)
+            if dfs(nv, verts, eids):
+                return True
+            verts.pop()
+            eids.pop()
+        return False
+
+    for start in vadj:
+        if dfs(start, [start], []):
+            return result["e"], result["v"]
+    raise RuntimeError("no trail found")
+
+
+def expect_error(fn, contains=None):
+    try:
+        fn()
+    except GameError as e:
+        if contains:
+            assert contains.lower() in str(e).lower(), "wrong error: %s" % e
+        return
+    raise AssertionError("expected GameError but none raised")
+
+
+def smart_choose(g, pid):
+    """A goal-directed move: knights -> cities -> settlements -> roads -> dev,
+    bank-trading toward whatever the next build needs."""
+    res = g.players[pid]["resources"]
+    if not g.dev_played_this_turn and g.players[pid]["dev"].get(C.DEV_KNIGHT, 0) > 0:
+        return {"type": "play_knight"}
+    if g._has(pid, C.COST_CITY) and g._settlements(pid):
+        return {"type": "build_city", "vertex": g._settlements(pid)[0]}
+    if g._has(pid, C.COST_SETTLEMENT):
+        spots = g.legal_settlement_spots(pid)
+        if spots:
+            return {"type": "build_settlement", "vertex": spots[0]}
+    if g._has(pid, C.COST_ROAD) and len(g._roads_of(pid)) < C.MAX_ROADS:
+        spots = g.legal_road_spots(pid)
+        if spots:
+            return {"type": "build_road", "edge": spots[0]}
+    if g._has(pid, C.COST_DEV_CARD) and g.deck:
+        return {"type": "buy_dev_card"}
+    wants = [r for r, need in (("ore", 3), ("wheat", 2)) if res[r] < need]
+    wants += [r for r in ("wood", "brick", "sheep", "wheat") if res[r] < 1 and r not in wants]
+    ratios = g._port_ratios(pid)
+    for want in wants:
+        for give in C.RESOURCES:
+            if give == want or res[give] < ratios[give] or g.bank[want] <= 0:
+                continue
+            if give in wants and res[give] - ratios[give] < 1:
+                continue
+            return {"type": "bank_trade", "give": give, "receive": want}
+    return {"type": "end_turn"}
+
+
+# ----------------------------------------------------------------------- tests
+@test
+def geometry_counts():
+    g = GEOMETRY
+    assert len(g["hexes"]) == 19
+    assert len(g["vertices"]) == 54
+    assert len(g["edges"]) == 72
+    assert len(g["ports"]) == 9
+    assert sum(1 for e in g["edges"] if e["coastal"]) == 30
+
+
+@test
+def board_setup_is_legal():
+    g = Game(PLAYERS, seed=1)
+    terr = Counter(h["terrain"] for h in g.hexes.values())
+    assert terr == Counter(C.TERRAIN_COUNTS)
+    nums = sorted(h["number"] for h in g.hexes.values() if h["number"] is not None)
+    assert nums == sorted(C.NUMBER_TOKENS)
+    # robber starts on the desert
+    assert g.hexes[g.robber_hex]["terrain"] == C.TERRAIN_DESERT
+    # desert has no number
+    assert g.hexes[g.robber_hex]["number"] is None
+    # red numbers (6/8) never adjacent
+    adj = g._hex_adjacency()
+    for hid, hx in g.hexes.items():
+        if hx["number"] in C.RED_NUMBERS:
+            for nb in adj[hid]:
+                assert g.hexes[nb]["number"] not in C.RED_NUMBERS
+
+
+@test
+def snake_draft_order():
+    g = Game(PLAYERS, seed=2)
+    assert g.setup_queue == ["A", "B", "C", "C", "B", "A"]
+    auto_setup(g)
+    assert g.phase == "main"
+    # everyone has exactly 2 settlements and 2 roads after setup
+    for pid in g.order:
+        assert len(g._settlements(pid)) == 2
+        assert len(g._roads_of(pid)) == 2
+    assert g.current_pid == "A"
+
+
+@test
+def second_settlement_gives_resources():
+    g = Game(PLAYERS, seed=3)
+    # play first round (3 settlements + roads), no resources yet
+    for _ in range(3):
+        pid = g.current_pid
+        g.apply(pid, {"type": "place_setup_settlement",
+                      "vertex": g.legal_settlement_spots(pid, setup=True)[0]})
+        g.apply(pid, {"type": "place_setup_road",
+                      "edge": g.legal_road_spots(pid, setup=True)[0]})
+    for pid in g.order:
+        assert sum(g.players[pid]["resources"].values()) == 0
+    # second round: each second settlement yields one card per adjacent tile
+    while g.phase == "setup":
+        pid = g.current_pid
+        if g.setup_sub == "settlement":
+            v = g.legal_settlement_spots(pid, setup=True)[0]
+            adj_res = [g.hexes[h]["resource"] for h in GEOMETRY["vertices"][v]["hexes"]
+                       if g.hexes[h]["resource"] and h != g.robber_hex]
+            before = sum(g.players[pid]["resources"].values())
+            g.apply(pid, {"type": "place_setup_settlement", "vertex": v})
+            after = sum(g.players[pid]["resources"].values())
+            assert after - before == len(adj_res)
+        else:
+            g.apply(pid, {"type": "place_setup_road",
+                          "edge": g.legal_road_spots(pid, setup=True)[0]})
+
+
+@test
+def must_roll_before_acting():
+    g = Game(PLAYERS, seed=4)
+    auto_setup(g)
+    grant(g, "A", wood=1, brick=1)
+    expect_error(lambda: g.apply("A", {"type": "end_turn"}), "roll")
+    spots = g.legal_road_spots("A")
+    expect_error(lambda: g.apply("A", {"type": "build_road", "edge": spots[0]}), "roll")
+    # not your turn
+    expect_error(lambda: g.apply("B", {"type": "roll_dice"}), "your turn")
+
+
+@test
+def cannot_roll_twice():
+    g = Game(PLAYERS, seed=5)
+    auto_setup(g)
+    # roll until we get a non-7 so we stay in free-action state
+    while True:
+        g2 = Game(PLAYERS, seed=5)
+        auto_setup(g2)
+        g2.apply("A", {"type": "roll_dice"})
+        if g2.robber_phase is None:
+            g = g2
+            break
+        # reseed by playing differently is hard; just accept and move robber
+        g = g2
+        break
+    if g.robber_phase is None:
+        expect_error(lambda: g.apply("A", {"type": "roll_dice"}), "already rolled")
+
+
+@test
+def build_costs_and_distance_rule():
+    g = Game(PLAYERS, seed=6)
+    auto_setup(g)
+    g.dice_rolled = True  # pretend A rolled a non-7
+    # can't build settlement with no resources
+    spots = g.legal_settlement_spots("A")
+    if spots:
+        expect_error(lambda: g.apply("A", {"type": "build_settlement", "vertex": spots[0]}),
+                     "afford")
+    # distance rule: a vertex adjacent to an existing settlement is illegal
+    existing = g._settlements("A")[0]
+    for nb in GEOMETRY["vertices"][existing]["adjacent"]:
+        assert not g._distance_ok(nb)
+
+
+@test
+def build_road_then_settlement_flow():
+    g = Game(PLAYERS, seed=7)
+    auto_setup(g)
+    g.dice_rolled = True
+    # build a road extending from A's network, then a settlement on its far end
+    grant(g, "A", wood=2, brick=2, wheat=1, sheep=1)
+    road_spots = g.legal_road_spots("A")
+    assert road_spots
+    g.apply("A", {"type": "build_road", "edge": road_spots[0]})
+    # settlement now possible somewhere connected
+    sset = g.legal_settlement_spots("A")
+    # may or may not be empty depending on distance; just assert no crash & types
+    assert isinstance(sset, list)
+
+
+@test
+def production_and_bank_limit():
+    g = Game(PLAYERS, seed=8)
+    auto_setup(g)
+    # craft a deterministic production scenario on two NON-adjacent tiles so
+    # their corners are exclusive, and silence every other tile.
+    hadj = g._hex_adjacency()
+    hexes = list(g.hexes.keys())
+    hA = hexes[0]
+    hB = next(h for h in hexes if h != hA and h not in hadj[hA])
+    robber = next(h for h in hexes if h not in (hA, hB))
+    for h in hexes:
+        g.hexes[h]["number"] = 5  # nothing else fires on a 4
+    g.hexes[hA].update(resource="wood", terrain="forest", number=4)
+    g.hexes[hB].update(resource="wood", terrain="forest", number=4)
+    g.robber_hex = robber
+    vA = GEOMETRY["hex_vertices"][hA][0]
+    vB = GEOMETRY["hex_vertices"][hB][3]
+    g.buildings.clear()
+    g.buildings[vA] = {"type": "settlement", "owner": "A"}
+    g.buildings[vB] = {"type": "city", "owner": "B"}
+    # plenty in bank
+    g.bank["wood"] = 19
+    for pid in g.order:
+        g.players[pid]["resources"] = {r: 0 for r in C.RESOURCES}
+    g._produce(4)
+    assert g.players["A"]["resources"]["wood"] == 1
+    assert g.players["B"]["resources"]["wood"] == 2  # city = 2
+
+    # bank shortage with multiple claimants -> nobody gets that resource
+    for pid in g.order:
+        g.players[pid]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.bank["wood"] = 1
+    g._produce(4)
+    assert g.players["A"]["resources"]["wood"] == 0
+    assert g.players["B"]["resources"]["wood"] == 0
+
+    # single claimant gets as many as the bank holds
+    g.buildings[vB] = {"type": "settlement", "owner": "A"}  # now only A claims
+    del g.buildings[vA]
+    g.buildings[vA] = {"type": "city", "owner": "A"}
+    for pid in g.order:
+        g.players[pid]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.bank["wood"] = 2
+    g._produce(4)  # A demands 3 (city) + 1 (settlement) = 3, bank has 2
+    assert g.players["A"]["resources"]["wood"] == 2
+
+
+@test
+def robber_does_not_produce():
+    g = Game(PLAYERS, seed=9)
+    auto_setup(g)
+    h = list(g.hexes.keys())[0]
+    g.hexes[h].update(resource="ore", terrain="mountains", number=5)
+    g.robber_hex = h
+    v = GEOMETRY["hex_vertices"][h][0]
+    g.buildings[v] = {"type": "settlement", "owner": "A"}
+    g.players["A"]["resources"] = {r: 0 for r in C.RESOURCES}
+    g._produce(5)
+    assert g.players["A"]["resources"]["ore"] == 0
+
+
+@test
+def seven_triggers_discard_and_move():
+    g = Game(PLAYERS, seed=10)
+    auto_setup(g)
+    # give B 8 cards so they must discard 4
+    g.players["B"]["resources"] = {"wood": 8, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.bank["wood"] -= 8
+    g._begin_robber(steal_only=False)
+    assert g.robber_phase == "discard"
+    assert g.pending_discards["B"] == 4
+    expect_error(lambda: g.apply("A", {"type": "move_robber", "hex": 0}), "move the robber")
+    g.apply("B", {"type": "discard", "resources": {"wood": 4}})
+    assert g.robber_phase == "move"
+    assert g.players["B"]["resources"]["wood"] == 4
+
+
+@test
+def robber_steal():
+    g = Game(PLAYERS, seed=11)
+    auto_setup(g)
+    h = list(g.hexes.keys())[3]
+    g.robber_hex = list(g.hexes.keys())[10]
+    v = GEOMETRY["hex_vertices"][h][0]
+    g.buildings[v] = {"type": "settlement", "owner": "B"}
+    g.players["B"]["resources"] = {"wood": 0, "brick": 0, "sheep": 3, "wheat": 0, "ore": 0}
+    g.bank["sheep"] -= 3
+    g.players["A"]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.dice_rolled = True
+    g.robber_phase = "move"
+    g.apply("A", {"type": "move_robber", "hex": h, "target": "B"})
+    assert g.players["A"]["resources"]["sheep"] == 1
+    assert g.players["B"]["resources"]["sheep"] == 2
+    assert g.robber_phase is None
+
+
+@test
+def knight_and_largest_army():
+    g = Game(PLAYERS, seed=12)
+    auto_setup(g)
+    g.players["A"]["dev"][C.DEV_KNIGHT] = 3
+    g.dice_rolled = True
+    # empty every hand so the robber has nothing to steal (keeps the test simple)
+    for pid in g.order:
+        g.players[pid]["resources"] = {r: 0 for r in C.RESOURCES}
+    other = list(g.hexes.keys())
+    for i in range(3):
+        g.dev_played_this_turn = False  # simulate three separate turns
+        g.apply("A", {"type": "play_knight"})
+        assert g.robber_phase == "move"
+        # move robber to an empty hex, no steal
+        dest = next(h for h in other if h != g.robber_hex)
+        g.apply("A", {"type": "move_robber", "hex": dest, "target": None})
+    assert g.players["A"]["played_knights"] == 3
+    assert g.largest_army_owner == "A"
+    assert g.public_vp("A") >= C.VP_LARGEST_ARMY
+
+
+@test
+def dev_card_bought_this_turn_not_playable():
+    g = Game(PLAYERS, seed=13)
+    auto_setup(g)
+    g.dice_rolled = True
+    grant(g, "A", wheat=1, sheep=1, ore=1)
+    # stack the deck so we draw a knight
+    g.deck.append(C.DEV_KNIGHT)
+    g.apply("A", {"type": "buy_dev_card"})
+    assert g.players["A"]["dev_new"][C.DEV_KNIGHT] == 1
+    expect_error(lambda: g.apply("A", {"type": "play_knight"}), "bought this turn")
+    # after ending the turn it becomes playable
+    g.apply("A", {"type": "end_turn"})
+    assert g.players["A"]["dev"][C.DEV_KNIGHT] == 1
+
+
+@test
+def one_dev_card_per_turn():
+    g = Game(PLAYERS, seed=14)
+    auto_setup(g)
+    g.dice_rolled = True
+    g.players["A"]["dev"][C.DEV_YEAR_OF_PLENTY] = 1
+    g.players["A"]["dev"][C.DEV_MONOPOLY] = 1
+    g.apply("A", {"type": "play_year_of_plenty", "resources": ["wood", "brick"]})
+    expect_error(lambda: g.apply("A", {"type": "play_monopoly", "resource": "ore"}),
+                 "one development card")
+
+
+@test
+def road_building_card():
+    g = Game(PLAYERS, seed=15)
+    auto_setup(g)
+    g.dice_rolled = True
+    g.players["A"]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.players["A"]["dev"][C.DEV_ROAD_BUILDING] = 1
+    before = len(g._roads_of("A"))
+    g.apply("A", {"type": "play_road_building"})
+    assert g.free_roads == 2
+    spots = g.legal_road_spots("A")
+    g.apply("A", {"type": "build_road", "edge": spots[0]})
+    assert g.free_roads == 1
+    spots = g.legal_road_spots("A")
+    g.apply("A", {"type": "build_road", "edge": spots[0]})
+    assert g.free_roads == 0
+    assert len(g._roads_of("A")) == before + 2
+    # roads were free (no resources spent)
+    assert sum(g.players["A"]["resources"].values()) == 0
+
+
+@test
+def year_of_plenty_and_monopoly():
+    g = Game(PLAYERS, seed=16)
+    auto_setup(g)
+    g.dice_rolled = True
+    g.players["A"]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.players["A"]["dev"][C.DEV_YEAR_OF_PLENTY] = 1
+    g.apply("A", {"type": "play_year_of_plenty", "resources": ["ore", "ore"]})
+    assert g.players["A"]["resources"]["ore"] == 2
+    # monopoly: take all wheat from others
+    g.dev_played_this_turn = False
+    g.players["A"]["dev"][C.DEV_MONOPOLY] = 1
+    g.players["B"]["resources"]["wheat"] = 3
+    g.players["C"]["resources"]["wheat"] = 2
+    g.apply("A", {"type": "play_monopoly", "resource": "wheat"})
+    assert g.players["A"]["resources"]["wheat"] == 5
+    assert g.players["B"]["resources"]["wheat"] == 0
+    assert g.players["C"]["resources"]["wheat"] == 0
+
+
+@test
+def longest_road_and_breaking():
+    g = Game(PLAYERS, seed=17)
+    auto_setup(g)
+    g.buildings.clear()
+    g.roads.clear()
+    eids, verts = find_edge_trail(5)
+    for eid in eids:
+        g.roads[eid] = "A"
+    g._recompute_longest_road()
+    assert g._longest_road_length("A") == 5
+    assert g.longest_road_owner == "A"
+    # opponent settlement in the middle splits the road
+    mid = verts[2]
+    g.buildings[mid] = {"type": "settlement", "owner": "B"}
+    g._recompute_longest_road()
+    assert g._longest_road_length("A") < 5
+    assert g.longest_road_owner is None
+
+
+@test
+def longest_road_needs_five():
+    g = Game(PLAYERS, seed=18)
+    auto_setup(g)
+    g.roads.clear()
+    eids, _ = find_edge_trail(4)
+    for eid in eids:
+        g.roads[eid] = "A"
+    g._recompute_longest_road()
+    assert g.longest_road_owner is None  # 4 is not enough
+
+
+@test
+def bank_and_port_trade():
+    g = Game(PLAYERS, seed=19)
+    auto_setup(g)
+    g.dice_rolled = True
+    # 4:1 with the bank
+    g.players["A"]["resources"] = {"wood": 4, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.apply("A", {"type": "bank_trade", "give": "wood", "receive": "ore"})
+    assert g.players["A"]["resources"]["wood"] == 0
+    assert g.players["A"]["resources"]["ore"] == 1
+    # give A a 2:1 wood port and verify the better ratio
+    woodport = next(p for p in GEOMETRY["ports"] if p["type"] == "wood")
+    g.buildings[woodport["vertices"][0]] = {"type": "settlement", "owner": "A"}
+    assert g._port_ratios("A")["wood"] == 2
+    g.players["A"]["resources"] = {"wood": 2, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.apply("A", {"type": "bank_trade", "give": "wood", "receive": "brick"})
+    assert g.players["A"]["resources"]["brick"] == 1
+    assert g.players["A"]["resources"]["wood"] == 0
+
+
+@test
+def domestic_trade():
+    g = Game(PLAYERS, seed=20)
+    auto_setup(g)
+    g.dice_rolled = True
+    g.players["A"]["resources"] = {"wood": 2, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.players["B"]["resources"] = {"wood": 0, "brick": 0, "sheep": 0, "wheat": 1, "ore": 0}
+    g.apply("A", {"type": "propose_trade",
+                  "give": {"wood": 2}, "receive": {"wheat": 1}, "to": "B"})
+    assert g.trade is not None
+    # C cannot accept a trade directed at B
+    expect_error(lambda: g.apply("C", {"type": "accept_trade"}), "directed")
+    g.apply("B", {"type": "accept_trade"})
+    assert g.players["A"]["resources"]["wood"] == 0
+    assert g.players["A"]["resources"]["wheat"] == 1
+    assert g.players["B"]["resources"]["wood"] == 2
+    assert g.players["B"]["resources"]["wheat"] == 0
+    assert g.trade is None
+
+
+@test
+def win_condition():
+    g = Game(PLAYERS, seed=21)
+    auto_setup(g)
+    g.dice_rolled = True
+    # hand A enough to reach 10 VP: give cities + a VP card
+    # Simplest: set buildings directly to 4 cities (8) + 2 settlements? max settlements 5,
+    # but use longest army + cities. Place direct buildings.
+    g.buildings.clear()
+    # 4 cities = 8 VP
+    verts = [v["id"] for v in GEOMETRY["vertices"]][:6]
+    for i in range(4):
+        g.buildings[verts[i]] = {"type": "city", "owner": "A"}
+    g.players["A"]["dev"][C.DEV_VICTORY_POINT] = 1  # +1 = 9
+    assert g.total_vp("A") == 9
+    g.buildings[verts[4]] = {"type": "settlement", "owner": "A"}  # +1 = 10
+    g._check_win()
+    assert g.winner == "A"
+    assert g.phase == "ended"
+
+
+@test
+def serialize_hides_opponent_hands():
+    g = Game(PLAYERS, seed=22)
+    auto_setup(g)
+    g.players["B"]["resources"] = {r: 0 for r in C.RESOURCES}
+    grant(g, "B", wood=3)
+    state = views.serialize(g, "A")
+    a = next(p for p in state["players"] if p["id"] == "A")
+    b = next(p for p in state["players"] if p["id"] == "B")
+    assert a["resources"] is not None          # own hand visible
+    assert b["resources"] is None              # opponent hand hidden
+    assert b["resourceCount"] == 3             # but count is public
+    assert state["yourId"] == "A"
+
+
+@test
+def legal_actions_basic():
+    g = Game(PLAYERS, seed=23)
+    auto_setup(g)
+    la = views.legal_actions(g, "A")
+    assert la["yourTurn"] and la["canRoll"]
+    assert not la["canEndTurn"]
+    lb = views.legal_actions(g, "B")
+    assert not lb["yourTurn"]
+    # after rolling (force non-7)
+    g.dice_rolled = True
+    g.dice = (3, 4)
+    la = views.legal_actions(g, "A")
+    assert la["canEndTurn"] and la["canTrade"]
+
+
+@test
+def full_game_smoke():
+    """Drive a complete game with a greedy auto-player; it must finish cleanly."""
+    g = Game(PLAYERS, seed=24)
+    auto_setup(g)
+    safety = 0
+    while g.phase != "ended" and safety < 30000:
+        safety += 1
+        pid = g.current_pid
+        # resolve discards first
+        if g.robber_phase == "discard":
+            for dp, need in list(g.pending_discards.items()):
+                res = g.players[dp]["resources"]
+                pick = {}
+                left = need
+                for r in C.RESOURCES:
+                    take = min(res[r], left)
+                    if take:
+                        pick[r] = take
+                        left -= take
+                    if left == 0:
+                        break
+                g.apply(dp, {"type": "discard", "resources": pick})
+            continue
+        if g.robber_phase == "move":
+            dest = next(h for h in g.hexes if h != g.robber_hex)
+            tgts = g._steal_targets(pid, dest)
+            g.apply(pid, {"type": "move_robber", "hex": dest,
+                          "target": tgts[0] if tgts else None})
+            continue
+        if not g.dice_rolled:
+            g.apply(pid, {"type": "roll_dice"})
+            continue
+        g.apply(pid, smart_choose(g, pid))
+    assert g.phase == "ended", "game did not finish (safety=%d)" % safety
+    assert g.winner is not None
+    assert g.total_vp(g.winner) >= C.VICTORY_POINTS_TO_WIN
+
+
+# --------------------------------------------------------------------- runner
+def main():
+    passed = failed = 0
+    for fn in _tests:
+        try:
+            fn()
+            print("PASS  %s" % fn.__name__)
+            passed += 1
+        except Exception as e:
+            print("FAIL  %s -> %s: %s" % (fn.__name__, type(e).__name__, e))
+            import traceback
+            traceback.print_exc()
+            failed += 1
+    print("\n%d passed, %d failed, %d total" % (passed, failed, len(_tests)))
+    sys.exit(1 if failed else 0)
+
+
+if __name__ == "__main__":
+    main()

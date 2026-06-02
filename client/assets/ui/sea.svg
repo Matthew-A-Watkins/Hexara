@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="seaBase" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b6c8f"/>
+      <stop offset="1" stop-color="#1d4f6b"/>
+    </linearGradient>
+    <!-- one tileable band of waves, 256 wide x 32 tall, repeated via <use> -->
+    <g id="waveBand">
+      <!-- crest line: 4 periods of 64px so it wraps left<->right -->
+      <path d="M0 16
+               q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0"
+            fill="none" stroke="#3f88ad" stroke-width="3" stroke-linecap="round" opacity="0.55"/>
+      <path d="M0 22
+               q16 -9 32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0 t32 0"
+            fill="none" stroke="#a9d2e6" stroke-width="1.6" stroke-linecap="round" opacity="0.45"/>
+    </g>
+  </defs>
+
+  <!-- base -->
+  <rect width="256" height="256" fill="url(#seaBase)"/>
+
+  <!-- subtle large swell shading; symmetric top & bottom so edges meet seamlessly -->
+  <path d="M0 0 h256 v40 q-64 26 -128 0 t-128 0 Z" fill="#357ca0" opacity="0.16"/>
+  <path d="M0 256 v-40 q64 26 128 0 t128 0 v40 Z" fill="#357ca0" opacity="0.16"/>
+
+  <!-- repeated wave bands every 32px (8 bands fill 256 exactly) -->
+  <use href="#waveBand" y="0"/>
+  <use href="#waveBand" y="32"/>
+  <use href="#waveBand" y="64"/>
+  <use href="#waveBand" y="96"/>
+  <use href="#waveBand" y="128"/>
+  <use href="#waveBand" y="160"/>
+  <use href="#waveBand" y="192"/>
+  <use href="#waveBand" y="224"/>
+</svg>

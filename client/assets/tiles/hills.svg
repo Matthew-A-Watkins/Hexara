@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="hSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6ddb0"/>
+      <stop offset="1" stop-color="#e9bf86"/>
+    </linearGradient>
+    <linearGradient id="hHillA" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d77a4e"/>
+      <stop offset="1" stop-color="#b85531"/>
+    </linearGradient>
+    <linearGradient id="hHillB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c96440"/>
+      <stop offset="1" stop-color="#a3431f"/>
+    </linearGradient>
+    <linearGradient id="hHillC" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bb5530"/>
+      <stop offset="1" stop-color="#8c3819"/>
+    </linearGradient>
+    <radialGradient id="hPit" cx="0.5" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#6e2c12"/>
+      <stop offset="1" stop-color="#943c1b"/>
+    </radialGradient>
+    <radialGradient id="hGlow" cx="0.3" cy="0.18" r="0.9">
+      <stop offset="0" stop-color="#fff4dc" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#fff4dc" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#hSky)"/>
+  <rect width="200" height="200" fill="url(#hGlow)"/>
+  <!-- far hill -->
+  <path d="M0 96 Q60 60 120 84 T200 78 L200 200 L0 200 Z" fill="url(#hHillC)" stroke="#7a3013" stroke-width="2"/>
+  <!-- mid hill -->
+  <path d="M0 132 Q70 96 140 120 T200 116 L200 200 L0 200 Z" fill="url(#hHillB)" stroke="#7a3013" stroke-width="2.2"/>
+  <!-- front hill -->
+  <path d="M0 168 Q60 138 110 156 Q150 170 200 150 L200 200 L0 200 Z" fill="url(#hHillA)" stroke="#7a3013" stroke-width="2.4"/>
+  <!-- contour highlights -->
+  <g fill="none" stroke="#efb088" stroke-width="2" opacity="0.5" stroke-linecap="round">
+    <path d="M10 124 Q70 92 138 116"/>
+    <path d="M8 162 Q58 134 108 152"/>
+  </g>
+  <!-- clay pit on mid hill -->
+  <g stroke="#6e2c12" stroke-width="2.2" stroke-linejoin="round">
+    <ellipse cx="120" cy="150" rx="40" ry="20" fill="url(#hPit)"/>
+    <ellipse cx="120" cy="146" rx="40" ry="18" fill="#9a3f1c" stroke="none"/>
+    <ellipse cx="120" cy="150" rx="26" ry="11" fill="#5e2510" stroke="none"/>
+    <!-- terraced ledges -->
+    <path d="M86 150 Q120 138 154 150" fill="none" stroke="#7c331a" stroke-width="2" opacity="0.8"/>
+    <path d="M94 156 Q120 147 146 156" fill="none" stroke="#7c331a" stroke-width="2" opacity="0.7"/>
+  </g>
+  <!-- clay bricks stacked at pit edge -->
+  <g stroke="#5e2510" stroke-width="1.6" stroke-linejoin="round">
+    <rect x="40" y="172" width="26" height="11" rx="2" fill="#cf6b43"/>
+    <rect x="48" y="161" width="26" height="11" rx="2" fill="#dc7b52"/>
+    <rect x="36" y="161" width="11" height="11" rx="2" fill="#c25f39"/>
+  </g>
+  <!-- pebbles -->
+  <g fill="#8c3819">
+    <circle cx="168" cy="178" r="4"/>
+    <circle cx="180" cy="186" r="3"/>
+    <circle cx="156" cy="190" r="3.4"/>
+  </g>
+</svg>

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 64">
+  <defs>
+    <linearGradient id="cloak" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4a4550"/>
+      <stop offset="0.55" stop-color="#2e2b33"/>
+      <stop offset="1" stop-color="#1b191f"/>
+    </linearGradient>
+    <radialGradient id="hood" cx="0.4" cy="0.35" r="0.8">
+      <stop offset="0" stop-color="#3c3942"/>
+      <stop offset="1" stop-color="#201e24"/>
+    </radialGradient>
+  </defs>
+  <!-- ground shadow -->
+  <ellipse cx="24" cy="58" rx="17" ry="4.5" fill="#1b191f" opacity="0.35"/>
+  <!-- cloaked body / pawn base -->
+  <path d="M24 11
+           C15 11 10 18 9 30
+           C8 40 6 48 5 55
+           C12 58 36 58 43 55
+           C42 48 40 40 39 30
+           C38 18 33 11 24 11 Z"
+        fill="url(#cloak)" stroke="#15131a" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- base rim -->
+  <path d="M5 55 C12 58 36 58 43 55 L42 57 C35 60 13 60 6 57 Z" fill="#15131a"/>
+  <!-- hood -->
+  <path d="M24 5
+           C16 5 12 12 13 22
+           C16 19 20 18 24 18
+           C28 18 32 19 35 22
+           C36 12 32 5 24 5 Z"
+        fill="url(#hood)" stroke="#15131a" stroke-width="1.5" stroke-linejoin="round"/>
+  <!-- face shadow inside hood -->
+  <ellipse cx="24" cy="21" rx="8" ry="7.5" fill="#100e13"/>
+  <!-- glinting eyes -->
+  <circle cx="20.5" cy="21" r="1.5" fill="#d9d2c2" opacity="0.85"/>
+  <circle cx="27.5" cy="21" r="1.5" fill="#d9d2c2" opacity="0.85"/>
+  <!-- cloak fold highlight (top-left light) -->
+  <path d="M16 26 C14 36 12 46 11 53" fill="none" stroke="#5a5560" stroke-width="1.4" opacity="0.5" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,50 @@
+# Normalize line endings: store all text as LF in the repo. Git will check out
+# files using each platform's native endings (CRLF on Windows, LF elsewhere)
+# unless `eol=lf` is set explicitly. This silences "LF will be replaced by CRLF"
+# warnings and keeps history stable across contributors.
+
+# Default: auto-detect text vs binary; text gets normalized to LF in the repo.
+* text=auto eol=lf
+
+# --- Code: explicit, LF in repo (most editors handle either on Windows) ---
+*.py    text eol=lf
+*.js    text eol=lf
+*.mjs   text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.json  text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.toml  text eol=lf
+
+# SVGs are XML text; keep them diffable.
+*.svg   text eol=lf
+
+# Shell scripts MUST stay LF or they won't run on Unix.
+*.sh    text eol=lf
+
+# Windows batch / PowerShell must stay CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# --- Binary: never touch ---
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ico   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.mp3   binary
+*.ogg   binary
+*.wav   binary
+*.zip   binary
+*.gz    binary
+*.exe   binary
+*.dll   binary

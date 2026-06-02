@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="fSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfe0c2"/>
+      <stop offset="1" stop-color="#7fb98a"/>
+    </linearGradient>
+    <linearGradient id="fGround" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f7d44"/>
+      <stop offset="1" stop-color="#2f5a2e"/>
+    </linearGradient>
+    <linearGradient id="fPine" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3f9a45"/>
+      <stop offset="1" stop-color="#1f5e25"/>
+    </linearGradient>
+    <linearGradient id="fPineD" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f7a36"/>
+      <stop offset="1" stop-color="#16461c"/>
+    </linearGradient>
+    <radialGradient id="fGlow" cx="0.3" cy="0.18" r="0.9">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#fSky)"/>
+  <rect width="200" height="200" fill="url(#fGlow)"/>
+  <path d="M0 132 Q50 118 100 128 T200 124 L200 200 L0 200 Z" fill="url(#fGround)"/>
+  <path d="M0 132 Q50 118 100 128 T200 124" fill="none" stroke="#264a24" stroke-width="2" opacity="0.5"/>
+  <g stroke="#1c3d1e" stroke-width="2.2" stroke-linejoin="round">
+    <!-- back row, darker/smaller -->
+    <g fill="url(#fPineD)" opacity="0.92">
+      <path d="M38 60 L24 96 L52 96 Z M38 76 L20 108 L56 108 Z M38 92 L24 124 L52 124 Z"/>
+      <path d="M150 64 L138 96 L162 96 Z M150 80 L134 110 L166 110 Z M150 96 L138 124 L162 124 Z"/>
+      <path d="M108 72 L98 100 L118 100 Z M108 86 L94 116 L122 116 Z"/>
+    </g>
+    <!-- mid trunks -->
+    <g fill="#5b3a1d" stroke="none">
+      <rect x="63" y="138" width="9" height="26" rx="2"/>
+      <rect x="124" y="142" width="9" height="26" rx="2"/>
+    </g>
+    <!-- front row, brighter/larger -->
+    <g fill="url(#fPine)">
+      <path d="M67.5 70 L48 112 L87 112 Z M67.5 92 L42 130 L93 130 Z M67.5 112 L48 152 L87 152 Z"/>
+      <path d="M128.5 78 L110 118 L147 118 Z M128.5 98 L104 134 L153 134 Z M128.5 118 L110 156 L147 156 Z"/>
+    </g>
+    <!-- light edge highlights -->
+    <g fill="none" stroke="#9fe0a0" stroke-width="2" opacity="0.55" stroke-linecap="round">
+      <path d="M67.5 74 L54 108"/>
+      <path d="M128.5 82 L116 114"/>
+    </g>
+  </g>
+  <!-- foreground tufts -->
+  <g fill="#356237">
+    <ellipse cx="22" cy="178" rx="26" ry="9"/>
+    <ellipse cx="176" cy="184" rx="30" ry="10"/>
+    <ellipse cx="100" cy="190" rx="34" ry="11"/>
+  </g>
+</svg>

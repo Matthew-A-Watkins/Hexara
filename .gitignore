@@ -1,0 +1,71 @@
+# --- HEXARA project ---
+
+# The cloudflared binary is auto-downloaded by share.py on first run.
+# It's ~50 MB and platform-specific, so don't commit it.
+/bin/
+
+# Optional local secrets / overrides (if you ever add a .env loader).
+.env
+.env.local
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# JetBrains workspace files
+.idea/workspace.xml
+.idea/tasks.xml
+
+# --- OS ---
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# --- Logs / scratch ---
+*.log
+logs/
+tmp/
+scratch/

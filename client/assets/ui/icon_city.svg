@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">
+  <!-- city: house + tower block -->
+  <path d="M5 33 L5 20 L13 14 L21 20 L21 33 Z"
+        fill="#3a2a18" stroke="#3a2a18" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="20" y="18" width="15" height="15" rx="1.5"
+        fill="#3a2a18" stroke="#3a2a18" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="10" y="24" width="6" height="9" fill="#f3e6c8"/>
+  <rect x="24" y="22" width="3.4" height="3.4" fill="#f3e6c8"/>
+  <rect x="30" y="22" width="3.4" height="3.4" fill="#f3e6c8"/>
+  <rect x="24" y="28" width="3.4" height="3.4" fill="#f3e6c8"/>
+  <rect x="30" y="28" width="3.4" height="3.4" fill="#f3e6c8"/>
+</svg>

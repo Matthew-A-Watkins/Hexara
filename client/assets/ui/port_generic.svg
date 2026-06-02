@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">
+  <defs>
+    <radialGradient id="wood" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#9c6234"/>
+      <stop offset="1" stop-color="#6b3f1d"/>
+    </radialGradient>
+    <linearGradient id="sail" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fbf4e2"/>
+      <stop offset="1" stop-color="#e4d3ac"/>
+    </linearGradient>
+  </defs>
+  <circle cx="28" cy="30" r="24" fill="#3a2a18" opacity="0.3"/>
+  <circle cx="28" cy="28" r="24" fill="url(#wood)" stroke="#3a2a18" stroke-width="2"/>
+  <circle cx="28" cy="28" r="19.5" fill="none" stroke="#3a2a18" stroke-width="1" opacity="0.4"/>
+  <!-- ship sail motif -->
+  <path d="M28 9 L28 27 L15 27 Z" fill="url(#sail)" stroke="#3a2a18" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M28 11 L28 27 L39 27 Z" fill="#f0e4c6" stroke="#3a2a18" stroke-width="1.2" stroke-linejoin="round"/>
+  <line x1="28" y1="8" x2="28" y2="27" stroke="#3a2a18" stroke-width="1.6"/>
+  <text x="28" y="42" font-family="Georgia, serif" font-size="13" font-weight="bold" fill="#fbf4e2" text-anchor="middle">3:1</text>
+  <text x="28" y="22" font-family="Georgia, serif" font-size="13" font-weight="bold" fill="#6b3f1d" text-anchor="middle">?</text>
+</svg>
