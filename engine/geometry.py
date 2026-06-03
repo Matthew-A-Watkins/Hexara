@@ -23,14 +23,23 @@ HEX_SIZE = 60.0
 _QUANT = 2
 
 
-def _axial_hexes():
-    """The 19 axial coordinates of a radius-2 hexagon (rows of 3-4-5-4-3)."""
+def hex_field(radius):
+    """Axial coordinates of a regular hexagon of the given radius.
+
+    radius 2 -> the standard 19-hex island (rows 3-4-5-4-3); radius N has
+    3N^2+3N+1 hexes. Used to build boards of any size.
+    """
     coords = []
-    for r in range(-2, 3):
-        for q in range(-2, 3):
-            if abs(q) <= 2 and abs(r) <= 2 and abs(q + r) <= 2:
+    for r in range(-radius, radius + 1):
+        for q in range(-radius, radius + 1):
+            if abs(q) <= radius and abs(r) <= radius and abs(q + r) <= radius:
                 coords.append((q, r))
     return coords
+
+
+def _axial_hexes():
+    """The 19 axial coordinates of a radius-2 hexagon (rows of 3-4-5-4-3)."""
+    return hex_field(2)
 
 
 def _hex_center(q, r):
@@ -50,8 +59,16 @@ def _key(pt):
     return (round(pt[0], _QUANT), round(pt[1], _QUANT))
 
 
-def build_geometry():
-    """Build and return the immutable board graph.
+def build_geometry(axials=None, port_types=None, ports_explicit=None):
+    """Build and return an immutable board graph for the given hex field.
+
+    axials:         list of (q, r) hex coordinates. Defaults to the standard
+                    19-hex island.
+    port_types:     list of port type strings to spread evenly around the coast
+                    (auto-placement). Defaults to the canonical 9-port sequence
+                    when no explicit ports are given.
+    ports_explicit: list of {"type", "vertices": [vid, vid]} placed exactly as
+                    given (used by custom maps). Overrides port_types.
 
     Returns a dict with:
       hexes:     list of {id, q, r, cx, cy}
@@ -62,7 +79,10 @@ def build_geometry():
       hex_edges:    {hid: [eid x6]}
       bounds:    {minx, miny, maxx, maxy}
     """
-    axials = _axial_hexes()
+    if axials is None:
+        axials = _axial_hexes()
+    if port_types is None and ports_explicit is None:
+        port_types = list(C.PORT_SEQUENCE)
 
     hexes = []
     for hid, (q, r) in enumerate(axials):
@@ -148,7 +168,7 @@ def build_geometry():
         v["edges"] = sorted(v["edges"])
 
     # --- Ports ------------------------------------------------------------
-    ports = _place_ports(vertices, edges)
+    ports = _make_ports(vertices, edges, port_types, ports_explicit)
 
     xs = [v["x"] for v in vertices] + [p["x"] for p in ports]
     ys = [v["y"] for v in vertices] + [p["y"] for p in ports]
@@ -165,10 +185,49 @@ def build_geometry():
     }
 
 
-def _place_ports(vertices, edges):
-    """Place the 9 standard ports on coastal edges, spread evenly around the
-    coast in the canonical clockwise sequence."""
+def _port_marker(vertices, v1, v2, eid):
+    """A port record sitting on edge (v1,v2), nudged outward from the centre."""
+    mx = (vertices[v1]["x"] + vertices[v2]["x"]) / 2.0
+    my = (vertices[v1]["y"] + vertices[v2]["y"]) / 2.0
+    d = math.hypot(mx, my) or 1.0
+    return {
+        "edge": eid,
+        "vertices": [v1, v2],
+        "x": mx + mx / d * 28.0,
+        "y": my + my / d * 28.0,
+    }
+
+
+def _make_ports(vertices, edges, port_types, ports_explicit):
+    """Return port records, either placed exactly (ports_explicit) or spread
+    evenly around the coast from a list of port type strings (port_types)."""
+    if ports_explicit:
+        # Map a vertex pair -> edge id so explicit ports can carry their edge.
+        pair_to_eid = {}
+        for e in edges:
+            pair_to_eid[frozenset((e["v1"], e["v2"]))] = e["id"]
+        out = []
+        for spec in ports_explicit:
+            v1, v2 = spec["vertices"]
+            # Skip ports that reference vertices outside this board rather than
+            # crashing (defensive: explicit ports come from hand-authored specs).
+            if not (0 <= v1 < len(vertices) and 0 <= v2 < len(vertices)):
+                continue
+            eid = pair_to_eid.get(frozenset((v1, v2)))
+            rec = _port_marker(vertices, v1, v2, eid)
+            rec["type"] = spec["type"]
+            out.append(rec)
+        return out
+    return _place_ports(vertices, edges, port_types or [])
+
+
+def _place_ports(vertices, edges, port_types):
+    """Spread the given port types over coastal edges, evenly around the coast
+    in clockwise order. With the canonical sequence on the standard board this
+    reproduces the 9-port layout exactly."""
     coastal = [e for e in edges if e["coastal"]]
+    if not coastal or not port_types:
+        return []
 
     # Order coastal edges clockwise by the angle of their midpoint about the
     # board centre (origin). Screen y grows downward, so negate to go CW.
@@ -179,22 +238,20 @@ def _place_ports(vertices, edges):
 
     coastal.sort(key=angle, reverse=True)
     n = len(coastal)
-    count = len(C.PORT_SEQUENCE)
+    count = len(port_types)
 
     ports = []
-    for i, ptype in enumerate(C.PORT_SEQUENCE):
-        e = coastal[round(i * n / count) % n]
-        mx = (vertices[e["v1"]]["x"] + vertices[e["v2"]]["x"]) / 2.0
-        my = (vertices[e["v1"]]["y"] + vertices[e["v2"]]["y"]) / 2.0
-        # Nudge the port marker outward from the board centre.
-        d = math.hypot(mx, my) or 1.0
-        ports.append({
-            "type": ptype,
-            "edge": e["id"],
-            "vertices": [e["v1"], e["v2"]],
-            "x": mx + mx / d * 28.0,
-            "y": my + my / d * 28.0,
-        })
+    used = set()
+    for i, ptype in enumerate(port_types):
+        idx = round(i * n / count) % n
+        # Don't stack two ports on the same edge on small/odd coasts.
+        while idx in used and len(used) < n:
+            idx = (idx + 1) % n
+        used.add(idx)
+        e = coastal[idx]
+        rec = _port_marker(vertices, e["v1"], e["v2"], e["id"])
+        rec["type"] = ptype
+        ports.append(rec)
     return ports
 
 

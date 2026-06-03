@@ -129,6 +129,17 @@
       $("lobby-add-bot").addEventListener("click", function () {
         if (self.cb.onAddBot) self.cb.onAddBot();
       });
+      // Game-setup controls: any change pushes the whole config to the server.
+      var setupIds = ["setup-preset", "setup-size", "setup-victoryPoints",
+        "setup-discardThreshold", "setup-maxRoads", "setup-maxSettlements",
+        "setup-maxCities", "setup-bankPerResource"];
+      setupIds.forEach(function (id) {
+        var node = $(id);
+        if (node) node.addEventListener("change", function () { self._onSetupChange(); });
+      });
+      $("setup-edit-map").addEventListener("click", function () {
+        self.openMapEditor();
+      });
       $("lobby-start").addEventListener("click", function () {
         if (self.cb.onStart) self.cb.onStart();
       });
@@ -202,6 +213,9 @@
         pal.appendChild(sw);
       });
 
+      // game setup (map + rules)
+      this._renderSetup(lobby, youId, isHost);
+
       // host controls
       $("lobby-host-controls").style.display = isHost ? "flex" : "none";
       var minP = lobby.minPlayers || 2;
@@ -217,17 +231,173 @@
       else hint.textContent = "Ready when you are — press Start Game.";
     },
 
+    /* ===================== LOBBY: game setup ===================== */
+    _RULE_KEYS: ["victoryPoints", "discardThreshold", "maxRoads", "maxSettlements", "maxCities", "bankPerResource"],
+
+    _renderSetup: function (lobby, youId, isHost) {
+      this._lobby = lobby;
+      var cfg = lobby.config || {};
+      var rules = cfg.rules || {};
+      var map = cfg.map || {};
+      var presets = lobby.presets || [];
+      var bounds = lobby.ruleBounds || {};
+      var hostBox = $("setup-host");
+      var ro = $("setup-readonly");
+      if (hostBox) hostBox.hidden = !isHost;
+      if (ro) ro.hidden = isHost;
+
+      if (!isHost) {
+        if (ro) ro.textContent = this._setupSummaryText(lobby);
+        return;
+      }
+
+      // Which map "mode" is selected.
+      var curVal = "standard";
+      if (map.preset) curVal = map.preset;
+      else if (map.tiles || map.axials) curVal = "__custom";
+      else if (map.radius != null) curVal = "__random";
+
+      var sel = $("setup-preset");
+      clear(sel);
+      presets.forEach(function (p) {
+        var o = el("option", null, p.name + " (" + p.tiles + " hexes)");
+        o.value = p.id;
+        sel.appendChild(o);
+      });
+      var rnd = el("option", null, "Random — choose size"); rnd.value = "__random"; sel.appendChild(rnd);
+      var cust = el("option", null, "Custom map…"); cust.value = "__custom"; sel.appendChild(cust);
+      sel.value = curVal;
+
+      // board-size input (only for "Random")
+      var sizeField = $("setup-size-field");
+      var sizeInput = $("setup-size");
+      var showSize = curVal === "__random";
+      if (sizeField) sizeField.hidden = !showSize;
+      if (showSize && sizeInput && document.activeElement !== sizeInput) {
+        sizeInput.value = map.radius != null ? map.radius : 2;
+      }
+
+      // custom-map summary + edit button label
+      var summ = $("setup-map-summary");
+      if (summ) summ.textContent = curVal === "__custom" ? this._mapSpecSummary(map) : "";
+      $("setup-edit-map").textContent = curVal === "__custom" ? "Edit Map…" : "Open Map Editor…";
+
+      // rule inputs
+      this._RULE_KEYS.forEach(function (key) {
+        var input = $("setup-" + key);
+        if (!input) return;
+        var b = bounds[key] || {};
+        if (b.min != null) input.min = b.min;
+        if (b.max != null) input.max = b.max;
+        var val = rules[key];
+        if (val == null && b.default != null) val = b.default;
+        if (document.activeElement !== input) input.value = val != null ? val : "";
+      });
+      var errEl = $("setup-error");
+      if (errEl) errEl.textContent = "";
+    },
+
+    _onSetupChange: function () {
+      var sel = $("setup-preset");
+      var val = sel ? sel.value : "standard";
+      var sizeField = $("setup-size-field");
+      if (sizeField) sizeField.hidden = val !== "__random";
+      // Selecting "Custom" with nothing authored yet jumps straight to the editor.
+      if (val === "__custom" && !this._customMap) {
+        this.openMapEditor();
+        return;
+      }
+      var cfg = this._collectConfig();
+      if (this.cb.onSetConfig) this.cb.onSetConfig(cfg);
+    },
+
+    _collectConfig: function () {
+      var rules = {};
+      this._RULE_KEYS.forEach(function (key) {
+        var input = $("setup-" + key);
+        if (input && input.value !== "") rules[key] = parseInt(input.value, 10);
+      });
+      var val = ($("setup-preset") || {}).value || "standard";
+      var map;
+      if (val === "__random") {
+        var r = parseInt(($("setup-size") || {}).value, 10) || 2;
+        map = { radius: r, name: "Random Island (r" + r + ")" };
+      } else if (val === "__custom") {
+        map = this._customMap || {};
+      } else {
+        map = { preset: val };
+      }
+      return { rules: rules, map: map };
+    },
+
+    // Apply a custom map produced by the editor: remember it, select Custom, push.
+    applyCustomMap: function (spec) {
+      this._customMap = spec;
+      var sel = $("setup-preset");
+      if (sel) sel.value = "__custom";
+      var cfg = this._collectConfig();
+      if (this.cb.onSetConfig) this.cb.onSetConfig(cfg);
+    },
+
+    openMapEditor: function () {
+      // Full implementation lives in the MAP EDITOR section below.
+      if (this._openMapEditorImpl) this._openMapEditorImpl();
+    },
+
+    _mapDisplayName: function (lobby, map) {
+      if (!map || (!map.preset && !map.name && map.radius == null)) return "Standard Island";
+      if (map.preset) {
+        var p = (lobby.presets || []).filter(function (x) { return x.id === map.preset; })[0];
+        return p ? p.name : map.preset;
+      }
+      return map.name || "Custom Map";
+    },
+
+    _mapSpecSummary: function (map) {
+      var n = map.tiles ? map.tiles.length : (map.axials ? map.axials.length : null);
+      var name = map.name || "Custom Map";
+      return n != null ? name + " · " + n + " hexes" : name;
+    },
+
+    _setupSummaryText: function (lobby) {
+      var cfg = lobby.config || {};
+      var rules = cfg.rules || {};
+      var map = cfg.map || {};
+      var parts = [
+        this._mapDisplayName(lobby, map),
+        (rules.victoryPoints || 10) + " VP to win",
+        "discard over " + (rules.discardThreshold || 7),
+        "pieces " + (rules.maxRoads || 15) + "/" + (rules.maxSettlements || 5) + "/" + (rules.maxCities || 4),
+        "bank " + (rules.bankPerResource || 19),
+      ];
+      return "Map: " + parts.join(" · ");
+    },
+
     /* ===================== GAME: full render ===================== */
     renderGame: function (state, legal) {
       legal = legal || {};
       this.show("game");
-      this._renderTopbar(state, legal);
-      this._renderPlayers(state, legal);
-      this._renderHand(state, legal);
-      this._renderActionBar(state, legal);
-      this._renderLog(state);
-      this._maybeAutoModals(state, legal);
-      if (state.phase === "ended") this._renderWin(state);
+      // Mandatory modals (e.g. the discard picker on a 7) are opened FIRST and
+      // guarded, so a render error in any panel below can never leave the player
+      // stuck with no way to discard. Each panel is also isolated for the same
+      // reason — one broken section must not take the whole UI (and the game)
+      // down with it.
+      this._guard(function () { UI._maybeAutoModals(state, legal); });
+      this._guard(function () { UI._renderTopbar(state, legal); });
+      this._guard(function () { UI._renderPlayers(state, legal); });
+      this._guard(function () { UI._renderHand(state, legal); });
+      this._guard(function () { UI._renderActionBar(state, legal); });
+      this._guard(function () { UI._renderLog(state); });
+      if (state.phase === "ended") this._guard(function () { UI._renderWin(state); });
+    },
+
+    // Run a render section in isolation; log failures without aborting the rest.
+    _guard: function (fn) {
+      try {
+        fn();
+      } catch (e) {
+        if (window.console && console.error) console.error("render error:", e);
+      }
     },
 
     colorOf: function (state, pid) {
@@ -515,6 +685,28 @@
         return;
       }
 
+      // Discard required (rolled a 7 with too many cards). This takes over the
+      // whole bar with one unmistakable, always-available control that re-opens
+      // the picker — so the turn can never get stuck here.
+      if (legal.mustDiscard && legal.mustDiscard > 0) {
+        var dn = legal.mustDiscard;
+        var warn = el("span", "discard-warn", "You rolled into a 7 — discard " + dn + " card" + (dn === 1 ? "" : "s") + ".");
+        bar.appendChild(warn);
+        bar.appendChild(this._actBtn(null, "Discard " + dn + " card" + (dn === 1 ? "" : "s"), true, function () {
+          UI.openDiscard(state, legal);
+        }, "btn-primary"));
+        return;
+      }
+      // Someone else still owes a discard — show whom we're waiting on.
+      if (state.robberPhase === "discard") {
+        var waitingOn = Object.keys(state.pendingDiscards || {}).map(function (pid) {
+          return UI.nameOf(state, pid);
+        });
+        bar.appendChild(el("span", "mode-hint",
+          waitingOn.length ? "Waiting for " + waitingOn.join(", ") + " to discard…" : "Waiting for discards…"));
+        return;
+      }
+
       // Roll
       var roll = this._actBtn("/assets/ui/icon_card.svg", "Roll Dice", legal.canRoll, function () {
         if (self.cb.onRoll) self.cb.onRoll();
@@ -636,6 +828,8 @@
       root.hidden = true;
       clear(root);
       this._openModalKind = null;
+      this._tradeGive = null;  // forget any in-progress trade selection
+      this._tradeRecv = null;
     },
     _openModal: function (node, kind) {
       var root = this._modalRoot();
@@ -681,7 +875,7 @@
         }, 0);
         totalEl.textContent = "Selected " + sum + " / " + need;
         totalEl.className = "pick-total " + (sum === need ? "good" : "bad");
-        confirm.disabled = sum !== need;
+        if (confirm) confirm.disabled = sum !== need;
       }
       var confirm;
       RES.forEach(function (r) {
@@ -738,7 +932,13 @@
       ctrls.appendChild(plus);
       cell.appendChild(ctrls);
       cell.appendChild(el("span", "have", "have " + max));
-      set(0);
+      // Initialise the display WITHOUT firing onChange — the caller often wires
+      // its confirm button only after building all steppers, so calling back
+      // here would hit an undefined reference (this used to crash the whole
+      // discard / Year-of-Plenty modal so it never appeared).
+      cnt.textContent = "0";
+      minus.disabled = true;
+      plus.disabled = !allowUnbounded && val >= max;
       return cell;
     },
 
@@ -768,7 +968,7 @@
         }, 0);
         totalEl.textContent = "Selected " + sum + " / 2";
         totalEl.className = "pick-total " + (sum === 2 ? "good" : "bad");
-        confirm.disabled = sum !== 2;
+        if (confirm) confirm.disabled = sum !== 2;
       }
       RES.forEach(function (r) {
         // bound by 2 (the gift size); bank availability is enforced server-side
@@ -868,42 +1068,42 @@
       this._openModal(modal, "steal");
     },
 
-    /* ---- trade panel (bank / propose / incoming) ---- */
+    /* ---- trade panel: click the cards to build give/receive, then pick
+       "Trade with Bank" or "Trade with Players" (the populace). Incoming and
+       outgoing offers show at the top with Accept / Cancel. ---- */
     openTrade: function (state, legal) {
       var self = this;
       var me = this._me(state);
       var have = (me && me.resources) || {};
-      // preserve chosen tab across re-renders
-      var tab = this._tradeTab || (legal.tradeRespond && state.trade && state.trade.from !== state.yourId ? "incoming" : "bank");
-      // If an incoming trade exists, default to it the first time.
-      if (state.trade && state.trade.from !== state.yourId && !this._tradeTabUserSet) tab = "incoming";
-
-      var modal = el("div", "modal");
-      modal.appendChild(el("h2", null, "Trade"));
-
-      var tabs = el("div", "trade-tabs");
-      function mkTab(key, label, show) {
-        if (!show) return;
-        var t = el("div", "trade-tab" + (tab === key ? " sel" : ""), label);
-        t.addEventListener("click", function () {
-          self._tradeTab = key;
-          self._tradeTabUserSet = true;
-          self.openTrade(state, legal);
-        });
-        tabs.appendChild(t);
-      }
       var hasIncoming = !!(state.trade && state.trade.from !== state.yourId);
       var iAmProposer = !!(state.trade && state.trade.from === state.yourId);
-      mkTab("bank", "Bank / Port", true);
-      mkTab("player", "Player Trade", legal.canTrade && !iAmProposer);
-      mkTab("incoming", iAmProposer ? "Your Offer" : "Incoming Offer", hasIncoming || iAmProposer);
-      modal.appendChild(tabs);
 
-      var body = el("div");
-      if (tab === "bank") body.appendChild(this._tradeBankBody(state, legal, have));
-      else if (tab === "player") body.appendChild(this._tradePlayerBody(state, legal, have));
-      else body.appendChild(this._tradeIncomingBody(state, legal));
-      modal.appendChild(body);
+      // Selections persist across the auto re-renders that happen on every state
+      // push, but reset whenever the panel is opened fresh (not already open).
+      var freshOpen = this._openModalKind !== "trade";
+      if (freshOpen || !this._tradeGive) {
+        this._tradeGive = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+        this._tradeRecv = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
+      }
+      var give = this._tradeGive;
+      var receive = this._tradeRecv;
+
+      var modal = el("div", "modal trade-modal");
+      modal.appendChild(el("h2", null, "Trade"));
+
+      // 1) Any open offer (one addressed to me, or my own awaiting a taker).
+      if (hasIncoming || iAmProposer) {
+        modal.appendChild(this._tradeIncomingBody(state, legal));
+      }
+
+      // 2) Build-a-trade — only when I may start one and don't already have an
+      //    offer of my own on the table.
+      if (legal.canTrade && !iAmProposer) {
+        modal.appendChild(this._tradeBuilder(state, legal, have, give, receive));
+      } else if (!hasIncoming && !iAmProposer) {
+        modal.appendChild(el("p", "sub",
+          legal.yourTurn ? "Roll the dice before you can trade." : "You can only start a trade on your turn."));
+      }
 
       var actions = el("div", "modal-actions");
       actions.appendChild(this._cancelBtn("Close"));
@@ -911,92 +1111,36 @@
       this._openModal(modal, "trade");
     },
 
-    _tradeBankBody: function (state, legal, have) {
-      var wrap = el("div");
-      var bankTrades = legal.bankTrades || {};
-      var giveable = Object.keys(bankTrades);
-      if (!giveable.length) {
-        wrap.appendChild(el("p", "sub", "You don't have enough of any resource to trade with the bank yet."));
-        return wrap;
-      }
-      var give = giveable[0];
-      var receive = RES.filter(function (r) {
-        return r !== give;
-      })[0];
+    // The click-to-select grid + the two trade buttons.
+    _tradeBuilder: function (state, legal, have, give, receive) {
+      var self = this;
+      var wrap = el("div", "trade-builder");
 
-      var giveRow = el("div", "bank-trade-row");
-      giveRow.appendChild(el("strong", null, "Give"));
-      var giveSel = el("select");
-      giveable.forEach(function (r) {
-        var o = el("option", null, RES_LABEL[r] + "  (" + bankTrades[r] + ":1, have " + num(have[r]) + ")");
-        o.value = r;
-        giveSel.appendChild(o);
-      });
-      giveSel.addEventListener("change", function () {
-        give = this.value;
-      });
-      giveRow.appendChild(giveSel);
-      wrap.appendChild(giveRow);
-
-      var recvRow = el("div", "bank-trade-row");
-      recvRow.appendChild(el("strong", null, "Receive"));
-      var recvSel = el("select");
+      wrap.appendChild(el("h3", "trade-head", "You give"));
+      var giveRow = el("div", "res-click-row");
       RES.forEach(function (r) {
-        var o = el("option", null, RES_LABEL[r]);
-        o.value = r;
-        recvSel.appendChild(o);
-      });
-      recvSel.value = receive;
-      recvSel.addEventListener("change", function () {
-        receive = this.value;
-      });
-      recvRow.appendChild(recvSel);
-      wrap.appendChild(recvRow);
-
-      var go = el("button", "btn btn-primary", "Trade with bank");
-      go.addEventListener("click", function () {
-        if (give === receive) {
-          UI.toast("Pick two different resources.");
-          return;
-        }
-        UI.closeModal();
-        if (UI.cb.onBankTrade) UI.cb.onBankTrade(give, receive);
-      });
-      wrap.appendChild(go);
-      return wrap;
-    },
-
-    _tradePlayerBody: function (state, legal, have) {
-      var wrap = el("div");
-      var give = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-      var receive = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 };
-      var grid = el("div", "trade-grid");
-
-      var giveCol = el("div", "trade-col");
-      giveCol.appendChild(el("h3", null, "You give"));
-      RES.forEach(function (r) {
-        giveCol.appendChild(UI._miniStep(r, "have " + num(have[r]), num(have[r]), function (v) {
-          give[r] = v;
+        giveRow.appendChild(self._resClickCard(r, give[r], num(have[r]), false, {
+          ratio: (legal.bankTrades && legal.bankTrades[r]) || null,
+          have: num(have[r]),
+          onChange: function (v) { give[r] = v; refresh(); },
         }));
       });
-      grid.appendChild(giveCol);
+      wrap.appendChild(giveRow);
 
-      var recvCol = el("div", "trade-col");
-      recvCol.appendChild(el("h3", null, "You receive"));
+      wrap.appendChild(el("h3", "trade-head", "You want"));
+      var recvRow = el("div", "res-click-row");
       RES.forEach(function (r) {
-        recvCol.appendChild(UI._miniStep(r, "", 99, function (v) {
-          receive[r] = v;
-        }, true));
+        recvRow.appendChild(self._resClickCard(r, receive[r], 0, true, {
+          onChange: function (v) { receive[r] = v; refresh(); },
+        }));
       });
-      grid.appendChild(recvCol);
-      wrap.appendChild(grid);
+      wrap.appendChild(recvRow);
 
-      // target
+      // who to offer a player trade to
       var tsel = el("div", "target-select");
       tsel.appendChild(el("strong", null, "Offer to: "));
       var sel = el("select");
-      var anyO = el("option", null, "Anyone");
-      anyO.value = "";
+      var anyO = el("option", null, "Anyone"); anyO.value = "";
       sel.appendChild(anyO);
       (state.players || []).forEach(function (p) {
         if (p.id === state.yourId) return;
@@ -1007,59 +1151,102 @@
       tsel.appendChild(sel);
       wrap.appendChild(tsel);
 
-      var go = el("button", "btn btn-primary", "Propose Trade");
-      go.style.marginTop = "12px";
-      go.addEventListener("click", function () {
-        var g = {},
-          rc = {};
-        RES.forEach(function (r) {
-          if (give[r] > 0) g[r] = give[r];
-          if (receive[r] > 0) rc[r] = receive[r];
-        });
-        if (!Object.keys(g).length && !Object.keys(rc).length) {
-          UI.toast("Add at least one resource to the offer.");
-          return;
+      var btns = el("div", "trade-btns");
+      var bankBtn = el("button", "btn btn-primary", "Trade with Bank");
+      var playBtn = el("button", "btn btn-primary", "Trade with Players");
+      btns.appendChild(bankBtn);
+      btns.appendChild(playBtn);
+      wrap.appendChild(btns);
+      var hint = el("p", "sub trade-hint", "");
+      wrap.appendChild(hint);
+
+      function total(b) { return RES.reduce(function (a, r) { return a + num(b[r]); }, 0); }
+      // A valid one-shot bank trade: exactly one card wanted, and one selected
+      // give type you hold enough of at your best ratio.
+      function bankTrade() {
+        var rType = null, rMulti = false;
+        RES.forEach(function (r) { if (receive[r] > 0) { rMulti = rMulti || rType !== null; rType = r; } });
+        if (rType === null || rMulti || total(receive) !== 1) return null;
+        for (var i = 0; i < RES.length; i++) {
+          var g = RES[i];
+          if (g === rType || give[g] <= 0) continue;
+          if (legal.bankTrades && legal.bankTrades[g]) {
+            return { give: g, receive: rType, ratio: legal.bankTrades[g] };
+          }
         }
+        return null;
+      }
+      function playerOk() {
+        if (total(give) === 0 && total(receive) === 0) return false;
+        return RES.every(function (r) { return num(give[r]) <= num(have[r]); });
+      }
+      function refresh() {
+        var bt = bankTrade();
+        bankBtn.disabled = !bt;
+        playBtn.disabled = !playerOk();
+        if (bt) {
+          hint.textContent = "Bank: give " + bt.ratio + " " + RES_LABEL[bt.give] +
+            " for 1 " + RES_LABEL[bt.receive] + ".";
+        } else if (total(receive) === 1 && total(give) > 0) {
+          hint.textContent = "You don't have enough of that resource for a bank trade.";
+        } else {
+          hint.textContent = "Bank: pick 1 card to receive and a resource you have enough of to give.";
+        }
+      }
+
+      bankBtn.addEventListener("click", function () {
+        var bt = bankTrade();
+        if (!bt) { UI.toast("Pick one card to receive and one you can afford to give."); return; }
+        UI.closeModal();
+        if (UI.cb.onBankTrade) UI.cb.onBankTrade(bt.give, bt.receive);
+      });
+      playBtn.addEventListener("click", function () {
+        if (!playerOk()) { UI.toast("Add at least one resource you actually hold."); return; }
+        var g = {}, rc = {};
+        RES.forEach(function (r) { if (give[r] > 0) g[r] = give[r]; if (receive[r] > 0) rc[r] = receive[r]; });
         UI.closeModal();
         if (UI.cb.onProposeTrade) UI.cb.onProposeTrade(g, rc, sel.value || null);
       });
-      wrap.appendChild(go);
+
+      refresh();
       return wrap;
     },
 
-    _miniStep: function (r, hint, max, onChange, unbounded) {
-      var row = el("div", "give-row");
-      var dot = el("span", "bank-dot");
-      dot.style.background = RES_COLOR[r];
-      row.appendChild(dot);
-      row.appendChild(el("span", null, RES_LABEL[r]));
-      var minus = el("button", "btn btn-sm", "−");
-      var cnt = el("span", "pcount", "0");
-      var plus = el("button", "btn btn-sm", "+");
-      var v = 0;
-      function set(x) {
-        v = Math.max(0, unbounded ? x : Math.min(max, x));
-        cnt.textContent = String(v);
-        minus.disabled = v <= 0;
-        plus.disabled = !unbounded && v >= max;
-        onChange(v);
+    // A clickable resource card: click the card to add one; the corner − removes
+    // one. `max` bounds give cards (what you hold); `unbounded` for receive.
+    _resClickCard: function (r, count, max, unbounded, opts) {
+      opts = opts || {};
+      var card = el("div", "res-click");
+      card.title = RES_LABEL[r];
+      var v = count || 0;
+      card.appendChild(this._smallResCard(r));
+      if (opts.ratio) card.appendChild(el("span", "rc-ratio", opts.ratio + ":1"));
+      if (opts.have != null) card.appendChild(el("span", "rc-have", "have " + opts.have));
+      var badge = el("span", "rc-count", String(v));
+      var minus = el("button", "rc-minus", "−");
+      card.appendChild(badge);
+      card.appendChild(minus);
+      function render() {
+        badge.textContent = String(v);
+        badge.style.visibility = v > 0 ? "visible" : "hidden";
+        minus.style.visibility = v > 0 ? "visible" : "hidden";
+        card.classList.toggle("active", v > 0);
       }
-      minus.addEventListener("click", function () {
-        set(v - 1);
+      card.addEventListener("click", function (e) {
+        if (e.target === minus) return;
+        if (!unbounded && v >= max) {
+          UI.toast(max > 0 ? "You only have " + max + " " + RES_LABEL[r] + "." : "You have no " + RES_LABEL[r] + " to give.");
+          return;
+        }
+        v += 1; render();
+        if (opts.onChange) opts.onChange(v);
       });
-      plus.addEventListener("click", function () {
-        set(v + 1);
+      minus.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (v > 0) { v -= 1; render(); if (opts.onChange) opts.onChange(v); }
       });
-      row.appendChild(minus);
-      row.appendChild(cnt);
-      row.appendChild(plus);
-      if (hint) {
-        var h = el("span", "have", hint);
-        h.style.marginLeft = "6px";
-        row.appendChild(h);
-      }
-      set(0);
-      return row;
+      render();
+      return card;
     },
 
     _tradeIncomingBody: function (state, legal) {
@@ -1180,17 +1367,35 @@
       }, kind === "info" ? 1800 : 3200);
     },
 
-    /* ---- mode banner over the board ---- */
-    setBanner: function (text, onCancel) {
+    /* ---- mode banner over the board ----
+       text:     banner label (null hides it)
+       onCancel: if set, adds a ✕ cancel button
+       opts:     { onClick, urgent } — onClick makes the banner itself a button
+                 that re-triggers an action (e.g. re-open the discard picker);
+                 urgent paints it as a red alert. */
+    setBanner: function (text, onCancel, opts) {
       var b = $("mode-banner");
       if (!b) return;
       clear(b);
+      b.classList.remove("urgent", "clickable");
       if (!text) {
         b.hidden = true;
+        b.onclick = null;
         return;
       }
+      opts = opts || {};
       b.hidden = false;
       b.appendChild(el("span", null, text));
+      if (opts.urgent) b.classList.add("urgent");
+      if (opts.onClick) {
+        b.classList.add("clickable");
+        b.onclick = function (e) {
+          if (e.target && e.target.classList && e.target.classList.contains("cancel-x")) return;
+          opts.onClick();
+        };
+      } else {
+        b.onclick = null;
+      }
       if (onCancel) {
         var x = el("button", "cancel-x", "✕");
         x.title = "Cancel (Esc)";

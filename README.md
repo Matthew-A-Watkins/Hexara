@@ -38,14 +38,43 @@ into `./bin`.)
    create a new game). You'll get a 4-letter **room code**.
 2. Friends open the same URL and enter that code to join. Or the host clicks
    **+ Add Bot** to fill seats with computer players.
-3. Host clicks **Start Game** (2–6 players).
-4. **Setup:** in snake-draft order, each player clicks the board to place 2
+3. **Game Setup (host):** in the lobby, choose a **map** (a built-in preset, a
+   random board of any size, or your **own custom design**) and tune the rules —
+   victory points to win, the 7-discard threshold, per-player piece limits and
+   the bank size. See **Game setup & custom maps** below.
+4. Host clicks **Start Game** (2–6 players).
+5. **Setup:** in snake-draft order, each player clicks the board to place 2
    settlements and 2 roads (your second settlement gives starting resources).
-5. **Your turn:** Roll the dice, then build, trade, buy/play development cards,
-   and End Turn. First to **10 victory points** on their turn wins.
+6. **Your turn:** Roll the dice, then build, trade, buy/play development cards,
+   and End Turn. First to the **victory-point target** (10 by default) on their
+   turn wins.
 
 The UI only lets you make legal moves — valid spots are highlighted and buttons
-enable/disable based on what the rules allow right now.
+enable/disable based on what the rules allow right now. When a **7** is rolled,
+everyone holding too many cards gets a discard window (with an always-available
+prompt over the board and in the action bar), and the roller then moves the
+robber. **Trading** is click-to-select: tap the cards you'll give and the cards
+you want, then **Trade with Bank** (uses your best port ratio) or **Trade with
+Players**.
+
+## Game setup & custom maps
+Everything below is chosen by the host in the lobby and shared live with the
+table; non-hosts see a read-only summary.
+
+- **Presets ("DLC-style" layouts):** Standard Island (19), Small Cove (7),
+  Greater Isle (37), Continent (61) and an irregular Frontier island — all
+  played with the base rules.
+- **Any size:** pick *Random — choose size* and set a board radius (1–5).
+- **Custom maps:** open the **Map Editor** to draw any board. A visual canvas
+  (click hexes to paint terrain, stamp number tokens, place the robber, carve the
+  island shape) stays in sync with a live **JSON** definition you can edit or
+  paste directly. Ports are auto-placed around the coast (or turned off).
+- **Rule tuning:** victory points to win, the discard threshold, max
+  roads/settlements/cities, and the bank size per resource.
+
+Maps and rules are validated server-side, so an illegal board or value is
+refused with a clear message before the game can start. The full format is in
+**`docs/PROTOCOL.md`** (`MapSpec` and `Rules`).
 
 ## Rules implemented (base game, 1:1)
 - 19-hex island, 9 harbors (4× generic 3:1, one 2:1 per resource), random board
@@ -64,17 +93,25 @@ enable/disable based on what the rules allow right now.
   **Largest Army** (≥3 knights), each worth 2 VP, with correct "keep on tie" rules.
 - Win at 10 VP (hidden VP cards count and are revealed on the winning turn).
 
+All of the numbers above (victory target, the 7-discard threshold, piece limits
+and the bank size) are **host-configurable per game**, and the 19-hex island can
+be swapped for a preset, a random board of any size, or a fully custom design —
+see **Game setup & custom maps**.
+
 ## Architecture
 - `engine/` — the authoritative rules engine (pure Python, no I/O):
-  `constants.py`, `geometry.py` (board graph + pixel layout), `game.py` (state +
-  rules), `views.py` (per-player serialization + legal-move computation),
-  `bot.py` (computer opponent).
-- `server/` — `app.py` (stdlib HTTP server: static files, SSE stream, action
-  endpoint) and `manager.py` (rooms, lobby, the bot driver).
-- `client/` — `index.html`, `styles.css`, `js/{net,board,ui,app}.js`, and
-  original SVG `assets/`. The browser renders state and sends actions; it never
-  decides rules — the **server is authoritative** and even sends the legal-move
-  set, so clients can't desync.
+  `constants.py`, `geometry.py` (board graph + pixel layout for **any** hex
+  field), `maps.py` (board presets, validation and map-spec resolution),
+  `game.py` (state + rules, with host-configurable numbers), `views.py`
+  (per-player serialization + legal-move computation), `bot.py` (computer
+  opponent — board-agnostic).
+- `server/` — `app.py` (stdlib HTTP server: static files, long-poll, action
+  endpoint) and `manager.py` (rooms, lobby + game-setup config, the bot driver).
+- `client/` — `index.html`, `styles.css`, `js/{net,board,ui,editor,app}.js`
+  (`editor.js` is the in-lobby custom map editor), and original SVG `assets/`.
+  The browser renders state and sends actions; it never decides rules — the
+  **server is authoritative** and even sends the legal-move set, so clients
+  can't desync.
 - `docs/` — `PROTOCOL.md` (HTTP/SSE/action contract) and `ASSETS.md` (art manifest).
 
 The server pushes a fresh, per-player view (opponents' hands/cards are hidden) on

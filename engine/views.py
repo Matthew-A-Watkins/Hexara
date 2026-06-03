@@ -27,9 +27,9 @@ def serialize(game, viewer):
             "builtSettlements": len(g._settlements(pid)),
             "builtCities": len(g._cities(pid)),
             "builtRoads": len(g._roads_of(pid)),
-            "roadsLeft": C.MAX_ROADS - len(g._roads_of(pid)),
-            "settlementsLeft": C.MAX_SETTLEMENTS - len(g._settlements(pid)),
-            "citiesLeft": C.MAX_CITIES - len(g._cities(pid)),
+            "roadsLeft": g.max_roads - len(g._roads_of(pid)),
+            "settlementsLeft": g.max_settlements - len(g._settlements(pid)),
+            "citiesLeft": g.max_cities - len(g._cities(pid)),
             "hasLongestRoad": g.longest_road_owner == pid,
             "hasLargestArmy": g.largest_army_owner == pid,
             "ports": _owned_ports(g, pid),
@@ -47,6 +47,8 @@ def serialize(game, viewer):
         "winner": g.winner,
         "currentPlayer": g.current_pid,
         "yourId": viewer,
+        "rules": g.rules_view(),
+        "mapName": g.map_spec.get("name") if getattr(g, "map_spec", None) else None,
         "order": list(g.order),
         "setup": {"sub": g.setup_sub} if g.phase == "setup" else None,
         "dice": list(g.dice) if g.dice else None,
@@ -204,13 +206,13 @@ def legal_actions(game, viewer):
 
     if g.free_roads > 0:
         out["roadSpots"] = g.legal_road_spots(viewer)
-    elif g._has(viewer, C.COST_ROAD) and len(g._roads_of(viewer)) < C.MAX_ROADS:
+    elif g._has(viewer, C.COST_ROAD) and len(g._roads_of(viewer)) < g.max_roads:
         out["roadSpots"] = g.legal_road_spots(viewer)
 
-    if g._has(viewer, C.COST_SETTLEMENT) and len(g._settlements(viewer)) < C.MAX_SETTLEMENTS:
+    if g._has(viewer, C.COST_SETTLEMENT) and len(g._settlements(viewer)) < g.max_settlements:
         out["settlementSpots"] = g.legal_settlement_spots(viewer)
 
-    if g._has(viewer, C.COST_CITY) and len(g._cities(viewer)) < C.MAX_CITIES:
+    if g._has(viewer, C.COST_CITY) and len(g._cities(viewer)) < g.max_cities:
         out["citySpots"] = g._settlements(viewer)
 
     if g._has(viewer, C.COST_DEV_CARD) and len(g.deck) > 0:

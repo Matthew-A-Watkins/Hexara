@@ -12,8 +12,8 @@ import secrets
 import threading
 import time
 
-from engine import bot, views, constants as C
-from engine.game import Game, GameError
+from engine import bot, views, constants as C, maps
+from engine.game import Game, GameError, validate_config, normalize_rules, rule_bounds
 
 PALETTE = [{"name": name, "hex": hexv} for name, hexv in C.PLAYER_COLORS]
 _BOT_NAMES = ["Robo-Rurik", "Auto-Astrid", "Bot Bjorn", "C.P.-Una",
@@ -48,6 +48,7 @@ class Room:
         self.players = []           # {id,name,color,token,is_bot,last_seen}
         self.host = None
         self.game = None
+        self.config = {"rules": {}, "map": {}}   # host-chosen rules + map spec
         self.bot_event = threading.Event()
         self.bot_thread = None
         self.closed = False
@@ -195,6 +196,18 @@ def handle_lobby(room, pid, action):
                 "token": "", "is_bot": True, "last_seen": time.monotonic(),
             }
             room.players.append(bot_player)
+        elif t == "lobby_set_config":
+            if pid != room.host:
+                raise GameError("Only the host can change game settings.")
+            incoming = action.get("config") or {}
+            # Validate up front so the host gets immediate feedback. Keep the
+            # raw map (so the UI can still tell which preset/size was chosen) but
+            # store fully-normalized rules; Game() re-validates both at start.
+            validate_config(incoming)
+            room.config = {
+                "rules": normalize_rules(incoming.get("rules") or {}),
+                "map": incoming.get("map") or {},
+            }
         elif t == "lobby_remove":
             if pid != room.host:
                 raise GameError("Only the host can remove players.")
@@ -214,7 +227,7 @@ def handle_lobby(room, pid, action):
                 raise GameError("Need at least one human player.")
             plist = [{"id": p["id"], "name": p["name"], "color": p["color"]}
                      for p in room.players]
-            room.game = Game(plist)
+            room.game = Game(plist, config=room.config)
             _start_bot_thread(room)
         else:
             raise GameError("Unknown lobby action: %r" % t)
@@ -338,6 +351,9 @@ def _lobby_view(room):
         "minPlayers": C.MIN_PLAYERS,
         "maxPlayers": C.MAX_PLAYERS,
         "palette": PALETTE,
+        "config": room.config,
+        "presets": maps.list_presets(),
+        "ruleBounds": rule_bounds(),
         "players": [
             {"id": p["id"], "name": p["name"], "color": p["color"],
              "isBot": p["is_bot"], "connected": _is_connected(p),

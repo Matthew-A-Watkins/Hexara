@@ -63,6 +63,35 @@
         </div>
       </div>
 
+      <!-- Game setup: map + rules (host edits; others see a read-only summary) -->
+      <div class="lobby-setup" id="lobby-setup">
+        <h2>Game Setup</h2>
+        <div class="setup-host" id="setup-host">
+          <div class="setup-grid">
+            <label class="field setup-wide">
+              <span>Map</span>
+              <select id="setup-preset"></select>
+            </label>
+            <label class="field" id="setup-size-field" hidden>
+              <span>Board size <em>(radius 1–5)</em></span>
+              <input id="setup-size" type="number" min="1" max="5" step="1" />
+            </label>
+            <label class="field"><span>Victory points</span><input id="setup-victoryPoints" type="number" /></label>
+            <label class="field"><span>Discard limit <em>(cards)</em></span><input id="setup-discardThreshold" type="number" /></label>
+            <label class="field"><span>Max roads</span><input id="setup-maxRoads" type="number" /></label>
+            <label class="field"><span>Max settlements</span><input id="setup-maxSettlements" type="number" /></label>
+            <label class="field"><span>Max cities</span><input id="setup-maxCities" type="number" /></label>
+            <label class="field"><span>Bank / resource</span><input id="setup-bankPerResource" type="number" /></label>
+          </div>
+          <div class="setup-map-row">
+            <button id="setup-edit-map" class="btn">Open Map Editor…</button>
+            <span id="setup-map-summary" class="setup-summary"></span>
+          </div>
+          <p id="setup-error" class="form-error"></p>
+        </div>
+        <p id="setup-readonly" class="setup-summary" hidden></p>
+      </div>
+
       <div class="lobby-actions">
         <div id="lobby-host-controls" class="host-controls">
           <button id="lobby-add-bot" class="btn">+ Add Bot</button>
@@ -129,16 +158,17 @@
         </div>
       </aside>
     </div>
-
-    <!-- Modal host + toasts -->
-    <div id="modal-root" class="modal-root" hidden></div>
-    <div id="toast-area" class="toast-area"></div>
   </section>
+
+  <!-- Modal host + toasts (top-level so they overlay any screen, incl. the lobby) -->
+  <div id="modal-root" class="modal-root" hidden></div>
+  <div id="toast-area" class="toast-area"></div>
 
   <!-- Scripts in dependency order -->
   <script src="/js/net.js"></script>
   <script src="/js/board.js"></script>
   <script src="/js/ui.js"></script>
+  <script src="/js/editor.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

@@ -30,6 +30,9 @@
         onAddBot: function () {
           Net.sendAction({ type: "lobby_add_bot" });
         },
+        onSetConfig: function (config) {
+          Net.sendAction({ type: "lobby_set_config", config: config });
+        },
         onRemove: function (target) {
           Net.sendAction({ type: "lobby_remove", target: target });
         },
@@ -219,9 +222,17 @@
         return;
       }
 
-      // 1) Discard is handled by a modal (UI auto-opens). Don't enter a board mode.
+      // 1) Discard is handled by a modal (UI auto-opens). Don't enter a board
+      // mode, but DO raise an urgent, clickable banner over the board as a second
+      // always-visible way back into the picker, so a 7 can never lock the game.
       if (legal.mustDiscard && legal.mustDiscard > 0) {
         App._setMode(null);
+        var n = legal.mustDiscard;
+        UI.setBanner(
+          "Discard " + n + " card" + (n === 1 ? "" : "s") + " — click to choose.",
+          null,
+          { urgent: true, onClick: function () { UI.openDiscard(App.state, App.legal); } }
+        );
         return;
       }
 

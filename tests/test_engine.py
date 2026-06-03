@@ -87,6 +87,17 @@ def expect_error(fn, contains=None):
     raise AssertionError("expected GameError but none raised")
 
 
+def expect_map_error(fn, contains=None):
+    from engine.maps import MapError
+    try:
+        fn()
+    except MapError as e:
+        if contains:
+            assert contains.lower() in str(e).lower(), "wrong error: %s" % e
+        return
+    raise AssertionError("expected MapError but none raised")
+
+
 def smart_choose(g, pid):
     """A goal-directed move: knights -> cities -> settlements -> roads -> dev,
     bank-trading toward whatever the next build needs."""
@@ -601,6 +612,169 @@ def full_game_smoke():
     assert g.phase == "ended", "game did not finish (safety=%d)" % safety
     assert g.winner is not None
     assert g.total_vp(g.winner) >= C.VICTORY_POINTS_TO_WIN
+
+
+# -------------------------------------------------- configurable rules & maps
+@test
+def hex_field_and_variable_geometry():
+    from engine import geometry as G
+    assert len(G.hex_field(1)) == 7
+    assert len(G.hex_field(2)) == 19
+    assert len(G.hex_field(3)) == 37
+    # default build is unchanged
+    std = G.build_geometry()
+    assert len(std["hexes"]) == 19 and len(std["vertices"]) == 54
+    assert len(std["edges"]) == 72 and len(std["ports"]) == 9
+    # arbitrary sizes build a consistent graph
+    for radius, n in [(1, 7), (3, 37), (4, 61)]:
+        g = G.build_geometry(G.hex_field(radius))
+        assert len(g["hexes"]) == n
+        nv = len(g["vertices"])
+        for e in g["edges"]:
+            assert 0 <= e["v1"] < nv and 0 <= e["v2"] < nv
+
+
+@test
+def map_presets_resolve():
+    import random
+    from engine import maps
+    presets = maps.list_presets()
+    assert len(presets) >= 4
+    for p in presets:
+        board = maps.resolve({"preset": p["id"]}, random.Random(1))
+        assert len(board["geo"]["hexes"]) == p["tiles"]
+        assert board["robber_hex"] in board["hexes"]
+        # the robber starts on a desert when there is one
+        assert board["hexes"][board["robber_hex"]]["terrain"] == C.TERRAIN_DESERT
+
+
+@test
+def custom_explicit_tiles_map():
+    import random
+    from engine import maps
+    spec = {"name": "Tiny", "tiles": [
+        {"q": 0, "r": 0, "terrain": "desert"},
+        {"q": 1, "r": 0, "terrain": "forest", "number": 8},
+        {"q": -1, "r": 0, "terrain": "hills", "number": 5},
+        {"q": 0, "r": 1, "terrain": "mountains", "number": 6},
+    ]}
+    board = maps.resolve(spec, random.Random(0))
+    assert len(board["geo"]["hexes"]) == 4
+    assert board["hexes"][board["robber_hex"]]["terrain"] == C.TERRAIN_DESERT
+    terrains = sorted(h["terrain"] for h in board["hexes"].values())
+    assert terrains == ["desert", "forest", "hills", "mountains"]
+
+
+@test
+def map_validation_rejects_bad_specs():
+    from engine import maps
+    expect_map_error(lambda: maps.validate(
+        {"tiles": [{"q": 0, "r": 0, "terrain": "forest", "number": 7}]}), "2-12")
+    expect_map_error(lambda: maps.validate(
+        {"tiles": [{"q": 0, "r": 0, "terrain": "swamp", "number": 5}]}), "terrain")
+    expect_map_error(lambda: maps.validate({"radius": 99}), "between")
+    expect_map_error(lambda: maps.validate({"tiles": [
+        {"q": 0, "r": 0, "terrain": "forest", "number": 5},
+        {"q": 0, "r": 0, "terrain": "hills", "number": 6}]}), "duplicate")
+
+
+@test
+def rule_overrides_apply():
+    g = Game(PLAYERS, config={"rules": {
+        "victoryPoints": 4, "discardThreshold": 5, "maxRoads": 20,
+        "maxSettlements": 7, "maxCities": 6, "bankPerResource": 25}}, seed=1)
+    assert g.vp_to_win == 4
+    assert g.discard_threshold == 5
+    assert g.max_roads == 20 and g.max_settlements == 7 and g.max_cities == 6
+    assert g.bank["wood"] == 25
+
+
+@test
+def rule_validation_rejects_bad():
+    expect_error(lambda: Game(PLAYERS, config={"rules": {"victoryPoints": 1}}), "between")
+    expect_error(lambda: Game(PLAYERS, config={"rules": {"maxRoads": "lots"}}), "whole number")
+
+
+@test
+def custom_discard_threshold():
+    g = Game(PLAYERS, config={"rules": {"discardThreshold": 5}}, seed=2)
+    auto_setup(g)
+    g.players["B"]["resources"] = {"wood": 6, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.bank["wood"] -= 6
+    g._begin_robber(steal_only=False)
+    assert g.pending_discards.get("B") == 3  # more than 5 -> discard half (6//2)
+
+
+@test
+def custom_victory_points_win():
+    g = Game(PLAYERS, config={"rules": {"victoryPoints": 4}}, seed=3)
+    auto_setup(g)
+    g.dice_rolled = True
+    g.buildings.clear()
+    verts = [v["id"] for v in g.geo["vertices"]][:2]
+    g.buildings[verts[0]] = {"type": "city", "owner": "A"}  # 2 VP
+    g.buildings[verts[1]] = {"type": "city", "owner": "A"}  # 2 VP -> 4
+    assert g.total_vp("A") == 4
+    g._check_win()
+    assert g.winner == "A" and g.phase == "ended"
+
+
+@test
+def piece_limit_override():
+    g = Game(PLAYERS, config={"rules": {"maxRoads": 2}}, seed=4)
+    auto_setup(g)  # setup gives each player exactly 2 roads -> already at the cap
+    g.dice_rolled = True
+    grant(g, "A", wood=1, brick=1)
+    spots = g.legal_road_spots("A")
+    assert spots, "expected at least one connected road spot"
+    expect_error(lambda: g.apply("A", {"type": "build_road", "edge": spots[0]}), "supply")
+
+
+@test
+def validate_config_function():
+    from engine.game import validate_config
+    cfg = validate_config({"rules": {"victoryPoints": 8}, "map": {"preset": "large"}})
+    assert cfg["rules"]["victoryPoints"] == 8
+    assert cfg["map"]["radius"] == 3  # 'large' is a radius-3 (37-hex) board
+    expect_error(lambda: validate_config({"rules": {"victoryPoints": 99}}), "between")
+    expect_error(lambda: validate_config({"map": {"radius": 99}}), "between")
+
+
+@test
+def variable_board_full_game():
+    """A complete game on a non-standard board with custom rules must finish."""
+    g = Game(PLAYERS, config={"map": {"preset": "small"},
+                              "rules": {"victoryPoints": 5}}, seed=11)
+    auto_setup(g)
+    safety = 0
+    while g.phase != "ended" and safety < 40000:
+        safety += 1
+        pid = g.current_pid
+        if g.robber_phase == "discard":
+            for dp, need in list(g.pending_discards.items()):
+                res = g.players[dp]["resources"]
+                pick, left = {}, need
+                for r in C.RESOURCES:
+                    take = min(res[r], left)
+                    if take:
+                        pick[r] = take
+                        left -= take
+                    if left == 0:
+                        break
+                g.apply(dp, {"type": "discard", "resources": pick})
+            continue
+        if g.robber_phase == "move":
+            dest = next(h for h in g.hexes if h != g.robber_hex)
+            tgts = g._steal_targets(pid, dest)
+            g.apply(pid, {"type": "move_robber", "hex": dest,
+                          "target": tgts[0] if tgts else None})
+            continue
+        if not g.dice_rolled:
+            g.apply(pid, {"type": "roll_dice"})
+            continue
+        g.apply(pid, smart_choose(g, pid))
+    assert g.phase == "ended", "variable-board game did not finish (safety=%d)" % safety
+    assert g.total_vp(g.winner) >= 5
 
 
 # --------------------------------------------------------------------- runner

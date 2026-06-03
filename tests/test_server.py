@@ -132,6 +132,36 @@ def main():
         check(lobby is not None, "Alice receives a lobby snapshot via long-poll")
         check(lobby and len(lobby["lobby"]["players"]) == 2, "lobby shows two players")
 
+        # ---- game setup: presets, bounds and host-only config over HTTP ----
+        lv = lobby["lobby"]
+        check(len(lv.get("presets", [])) >= 4, "lobby offers map presets")
+        check("victoryPoints" in lv.get("ruleBounds", {}), "lobby offers rule bounds")
+
+        def cfg_post(jd, config):
+            return _post("/api/action", {"room": room, "player": jd["playerId"],
+                                         "token": jd["token"],
+                                         "action": {"type": "lobby_set_config", "config": config}})
+
+        # non-host cannot change settings
+        st, _ = cfg_post(b, {"rules": {"victoryPoints": 5}})
+        check(st == 400, "non-host cannot change game settings")
+
+        # host picks a custom map + rules; the lobby broadcasts them
+        st, _ = cfg_post(a, {"map": {"preset": "small"}, "rules": {"victoryPoints": 6}})
+        check(st == 200, "host sets a custom map + rules")
+        echoed = wait_for(lambda: ra.get() if (ra.get() and ra.get()["type"] == "lobby"
+                          and ra.get()["lobby"]["config"]["map"].get("preset") == "small"
+                          and ra.get()["lobby"]["config"]["rules"].get("victoryPoints") == 6) else None)
+        check(echoed is not None, "lobby broadcasts the updated map + rules")
+
+        # invalid settings are rejected
+        st, _ = cfg_post(a, {"rules": {"victoryPoints": 99}})
+        check(st == 400, "invalid settings are rejected")
+
+        # settle on a standard board with a high VP cap so the flow below is stable
+        st, _ = cfg_post(a, {"map": {"preset": "standard"}, "rules": {"victoryPoints": 12, "discardThreshold": 8}})
+        check(st == 200, "host finalizes settings")
+
         # bad token is rejected
         st, _ = _post("/api/action", {"room": room, "player": a["playerId"],
                                       "token": "wrong", "action": {"type": "lobby_start"}})
@@ -150,6 +180,10 @@ def main():
         started = wait_for(lambda: ra.get() if ra.get() and ra.get()["type"] == "state" else None)
         check(started is not None and started["state"]["phase"] == "setup",
               "game starts; long-poll delivers the setup state")
+        check(started and started["state"]["rules"]["victoryPoints"] == 12,
+              "game starts with the host's custom rules")
+        check(started and len(started["state"]["board"]["hexes"]) == 19,
+              "game starts on the chosen board")
 
         ids = {"Alice": a["playerId"], "Bob": b["playerId"]}
         tok = {a["playerId"]: a["token"], b["playerId"]: b["token"]}

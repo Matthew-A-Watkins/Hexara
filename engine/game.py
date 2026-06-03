@@ -12,7 +12,7 @@ Nothing in here knows about networking or rendering.
 import random
 
 from . import constants as C
-from .geometry import GEOMETRY
+from . import maps
 
 
 class GameError(Exception):
@@ -23,13 +23,68 @@ def _empty_hand():
     return {r: 0 for r in C.RESOURCES}
 
 
+# Host-tunable numeric rules: key -> (default, min, max).
+_RULE_SPECS = {
+    "victoryPoints": (C.VICTORY_POINTS_TO_WIN, 3, 30),
+    "discardThreshold": (C.ROBBER_DISCARD_LIMIT, 2, 40),
+    "maxRoads": (C.MAX_ROADS, 1, 60),
+    "maxSettlements": (C.MAX_SETTLEMENTS, 1, 40),
+    "maxCities": (C.MAX_CITIES, 0, 40),
+    "bankPerResource": (C.BANK_PER_RESOURCE, 1, 400),
+}
+
+
+def normalize_rules(rules):
+    """Validate and fill in rule overrides; returns a complete rules dict.
+
+    Raises :class:`GameError` with a friendly message on a bad value."""
+    rules = rules or {}
+    out = {}
+    for key, (default, lo, hi) in _RULE_SPECS.items():
+        v = rules.get(key, default)
+        if v is None or v == "":
+            v = default
+        try:
+            v = int(v)
+        except (TypeError, ValueError):
+            raise GameError("Setting '%s' must be a whole number." % key)
+        if not (lo <= v <= hi):
+            raise GameError("Setting '%s' must be between %d and %d." % (key, lo, hi))
+        out[key] = v
+    return out
+
+
+def rule_bounds():
+    """Defaults and ranges for each rule, for the lobby's settings editor."""
+    return {k: {"default": d, "min": lo, "max": hi} for k, (d, lo, hi) in _RULE_SPECS.items()}
+
+
+def validate_config(config):
+    """Validate a whole {rules, map} config for the lobby. Returns the
+    normalized config; raises :class:`GameError` on any problem."""
+    config = config or {}
+    rules = normalize_rules(config.get("rules") or {})
+    try:
+        mp = maps.validate(config.get("map") or {})
+    except maps.MapError as e:
+        raise GameError(str(e))
+    return {"rules": rules, "map": mp}
+
+
 class Game:
-    def __init__(self, players, seed=None):
-        """players: list of {"id","name","color"} in seating (turn) order."""
+    def __init__(self, players, config=None, seed=None):
+        """players: list of {"id","name","color"} in seating (turn) order.
+
+        config (optional): {"rules": {...}, "map": {...}}. Rules override the
+        base-game numbers (victory points to win, the 7-discard threshold, the
+        per-player piece limits and the bank size). The map spec selects/defines
+        the board (see geometry.build_map). Both default to the standard game.
+        """
         if not (C.MIN_PLAYERS <= len(players) <= C.MAX_PLAYERS):
             raise GameError("Need %d-%d players" % (C.MIN_PLAYERS, C.MAX_PLAYERS))
         self.rng = random.Random(seed)
-        self.geo = GEOMETRY
+        config = config or {}
+        self._apply_rules(config.get("rules") or {})
 
         self.order = [p["id"] for p in players]
         self.players = {}
@@ -42,9 +97,9 @@ class Game:
                 "played_knights": 0,
             }
 
-        self._make_board()
+        self._make_board(config.get("map") or {})
         self._make_deck()
-        self.bank = {r: C.BANK_PER_RESOURCE for r in C.RESOURCES}
+        self.bank = {r: self.bank_per_resource for r in C.RESOURCES}
 
         self.buildings = {}   # vid -> {"type","owner"}
         self.roads = {}       # eid -> owner pid
@@ -74,34 +129,45 @@ class Game:
         self.log = []
         self._log("Game started. Place your first settlement.")
 
+    # ------------------------------------------------------------------ rules
+    def _apply_rules(self, rules):
+        """Validate and store the (optionally overridden) numeric rules.
+
+        Everything the host can tune lives here; anything absent falls back to
+        the canonical base-game value from ``constants``.
+        """
+        r = normalize_rules(rules)
+        self.vp_to_win = r["victoryPoints"]
+        self.discard_threshold = r["discardThreshold"]
+        self.max_roads = r["maxRoads"]
+        self.max_settlements = r["maxSettlements"]
+        self.max_cities = r["maxCities"]
+        self.bank_per_resource = r["bankPerResource"]
+
+    def rules_view(self):
+        """The active rule numbers, for serialization to clients."""
+        return {
+            "victoryPoints": self.vp_to_win,
+            "discardThreshold": self.discard_threshold,
+            "maxRoads": self.max_roads,
+            "maxSettlements": self.max_settlements,
+            "maxCities": self.max_cities,
+            "bankPerResource": self.bank_per_resource,
+        }
+
     # ------------------------------------------------------------------ setup
-    def _make_board(self):
-        terrains = []
-        for terrain, n in C.TERRAIN_COUNTS.items():
-            terrains += [terrain] * n
-        numbers = list(C.NUMBER_TOKENS)
-
-        hex_ids = [h["id"] for h in self.geo["hexes"]]
-        for _ in range(200):  # retry until red numbers (6/8) are not adjacent
-            self.rng.shuffle(terrains)
-            assignment = dict(zip(hex_ids, terrains))
-            non_desert = [h for h in hex_ids if assignment[h] != C.TERRAIN_DESERT]
-            nums = list(numbers)
-            self.rng.shuffle(nums)
-            number_of = dict(zip(non_desert, nums))
-            if self._red_numbers_ok(number_of):
-                break
-
-        self.hexes = {}
-        for h in hex_ids:
-            terrain = assignment[h]
-            self.hexes[h] = {
-                "terrain": terrain,
-                "resource": C.TERRAIN_RESOURCE[terrain],
-                "number": number_of.get(h),
-            }
-            if terrain == C.TERRAIN_DESERT:
-                self.robber_hex = h
+    def _make_board(self, map_spec):
+        # Resolve the map spec (preset / size / custom design) into the board
+        # graph plus the per-hex terrain & number assignment and robber start.
+        self._hex_adj_cache = None
+        try:
+            board = maps.resolve(map_spec or {}, self.rng)
+        except maps.MapError as e:
+            raise GameError(str(e))
+        self.geo = board["geo"]
+        self.hexes = board["hexes"]
+        self.robber_hex = board["robber_hex"]
+        self.map_spec = board["spec"]
 
     def _red_numbers_ok(self, number_of):
         """No two red (6/8) tokens may sit on adjacent hexes."""
@@ -378,7 +444,7 @@ class Game:
         if not steal_only:
             for pid in self.order:
                 n = self._hand_size(pid)
-                if n > C.ROBBER_DISCARD_LIMIT:
+                if n > self.discard_threshold:
                     self.pending_discards[pid] = n // 2
         if self.pending_discards:
             self.robber_phase = "discard"
@@ -466,7 +532,7 @@ class Game:
         if not free:
             self._require(self.dice_rolled, "Roll the dice first.")
         eid = action.get("edge")
-        self._require(len(self._roads_of(pid)) < C.MAX_ROADS, "No roads left in supply.")
+        self._require(len(self._roads_of(pid)) < self.max_roads, "No roads left in supply.")
         self._require(eid not in self.roads, "There is already a road there.")
         self._require(self._road_connects(pid, eid), "That road isn't connected to your network.")
         if free:
@@ -481,10 +547,8 @@ class Game:
     def _h_build_settlement(self, pid, action):
         self._require_can_build(pid)
         vid = action.get("vertex")
-        self._require(len(self._settlements(pid)) + len(self._cities(pid)) < C.MAX_SETTLEMENTS
-                      or len(self._settlements(pid)) < C.MAX_SETTLEMENTS,
+        self._require(len(self._settlements(pid)) < self.max_settlements,
                       "No settlements left in supply.")
-        self._require(len(self._settlements(pid)) < C.MAX_SETTLEMENTS, "No settlements left in supply.")
         self._require(self._distance_ok(vid), "Too close to another building (distance rule).")
         self._require(self._settlement_connected(pid, vid), "Must connect to one of your roads.")
         self._require(self._has(pid, C.COST_SETTLEMENT), "You can't afford a settlement.")
@@ -500,7 +564,7 @@ class Game:
         b = self.buildings.get(vid)
         self._require(b is not None and b["owner"] == pid and b["type"] == "settlement",
                       "You can only upgrade your own settlement.")
-        self._require(len(self._cities(pid)) < C.MAX_CITIES, "No cities left in supply.")
+        self._require(len(self._cities(pid)) < self.max_cities, "No cities left in supply.")
         self._require(self._has(pid, C.COST_CITY), "You can't afford a city.")
         self._pay(pid, C.COST_CITY)
         b["type"] = "city"
@@ -538,7 +602,7 @@ class Game:
         self._require_can_play_dev(pid, C.DEV_ROAD_BUILDING)
         self.players[pid]["dev"][C.DEV_ROAD_BUILDING] -= 1
         self.dev_played_this_turn = True
-        roads_left = max(0, C.MAX_ROADS - len(self._roads_of(pid)))
+        roads_left = max(0, self.max_roads - len(self._roads_of(pid)))
         self.free_roads = min(2, roads_left)
         self._log("%s played Road Building (2 free roads)." % self._name(pid))
 
@@ -760,7 +824,7 @@ class Game:
         if self.phase != "main" or self.winner:
             return
         actor = self.current_pid
-        if actor and self.total_vp(actor) >= C.VICTORY_POINTS_TO_WIN:
+        if actor and self.total_vp(actor) >= self.vp_to_win:
             self.winner = actor
             self.phase = "ended"
             self._log("%s wins with %d victory points!" % (self._name(actor), self.total_vp(actor)))

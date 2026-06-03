@@ -53,9 +53,45 @@ You do **not** read game state from the action response — wait for the next po
   "palette": [ { "name": "red", "hex": "#c0392b" }, ... ],   // selectable colours
   "players": [
     { "id", "name", "color": "#hex", "isBot": false, "connected": true, "isHost": true }
-  ]
+  ],
+  "config": { "rules": <Rules>, "map": <MapSpec> },          // the host's chosen settings
+  "presets": [ { "id", "name", "description", "tiles": 19 }, ... ],  // selectable board presets
+  "ruleBounds": { "victoryPoints": { "default": 10, "min": 3, "max": 30 }, ... }  // per-rule defaults & ranges
 }
 ```
+
+### `Rules` object (all optional; omitted keys use the default)
+```jsonc
+{
+  "victoryPoints": 10,      // points to win (3–30)
+  "discardThreshold": 7,    // a 7 forces discarding half above this hand size (2–40)
+  "maxRoads": 15,           // per-player piece limits
+  "maxSettlements": 5,
+  "maxCities": 4,
+  "bankPerResource": 19     // cards of each resource in the bank (1–400)
+}
+```
+
+### `MapSpec` object — the board to play on
+One of three content modes, plus optional ports/robber. Omit entirely for the
+standard 19-hex island.
+```jsonc
+{
+  "name": "My Map",
+  "preset": "standard|small|large|huge|frontier",  // pick a built-in (overrides the rest)
+  // -- content mode A: a regular hexagon of the given size --
+  "radius": 2,                       // 1–5 (radius 2 = 19 hexes); randomly filled
+  // -- content mode B: an arbitrary island shape, randomly filled --
+  "axials": [ [q, r], ... ],
+  // -- content mode C: a fully explicit layout --
+  "tiles": [ { "q": 0, "r": 0, "terrain": "forest", "number": 8 }, ... ],
+  // -- ports (optional): omit to auto-spread; [] for none; or a type list --
+  "ports": [ "3:1", "wheat", "ore", ... ],
+  "robber": { "q": 0, "r": 0 }       // optional robber start (default: a desert)
+}
+```
+Terrains: `forest|hills|pasture|fields|mountains|desert`. Number tokens are 2–12
+(never 7); deserts have no number. Bad specs are rejected with a `400`/error.
 
 ## `GameState` object (per-viewer; opponents' hidden info is masked)
 ```jsonc
@@ -64,6 +100,8 @@ You do **not** read game state from the action response — wait for the next po
   "winner": "<playerId>" | null,
   "currentPlayer": "<playerId>" | null,
   "yourId": "<playerId>",
+  "rules": <Rules>,                        // active rule numbers (see Lobby)
+  "mapName": "Standard Island" | null,     // the board's display name
   "order": ["<playerId>", ...],            // seating / turn order
   "setup": { "sub": "settlement" | "road" } | null,
   "dice": [d1, d2] | null,
@@ -152,6 +190,7 @@ Lobby (before the game starts):
 - `{ "type": "lobby_set_color", "color": "#hex" }`
 - `{ "type": "lobby_add_bot" }`            (host only)
 - `{ "type": "lobby_remove", "target": "<playerId>" }`  (host only)
+- `{ "type": "lobby_set_config", "config": { "rules": <Rules>, "map": <MapSpec> } }`  (host only)
 - `{ "type": "lobby_leave" }`
 - `{ "type": "lobby_start" }`              (host only)
 

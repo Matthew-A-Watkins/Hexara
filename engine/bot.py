@@ -11,7 +11,6 @@ needs. It plays a legal, finite turn and always ends.
 """
 
 from . import constants as C
-from .geometry import GEOMETRY
 
 
 def next_action(game, pid):
@@ -42,7 +41,7 @@ def _setup(g, pid):
 def _vertex_value(g, vid):
     score = 0.0
     seen = set()
-    for hid in GEOMETRY["vertices"][vid]["hexes"]:
+    for hid in g.geo["vertices"][vid]["hexes"]:
         num = g.hexes[hid]["number"]
         if num:
             score += C.NUMBER_PIPS.get(num, 0)
@@ -82,7 +81,7 @@ def _main(g, pid):
             r = max(totals, key=lambda k: totals[k])
             if totals[r] >= 3:
                 return {"type": "play_monopoly", "resource": r}
-        if p["dev"].get(C.DEV_ROAD_BUILDING, 0) > 0 and len(g._roads_of(pid)) < C.MAX_ROADS:
+        if p["dev"].get(C.DEV_ROAD_BUILDING, 0) > 0 and len(g._roads_of(pid)) < g.max_roads:
             if g.legal_road_spots(pid):
                 return {"type": "play_road_building"}
 
@@ -93,7 +92,7 @@ def _main(g, pid):
         if spots:
             best = max(spots, key=lambda v: _vertex_value(g, v))
             return {"type": "build_settlement", "vertex": best}
-    if g._has(pid, C.COST_ROAD) and len(g._roads_of(pid)) < C.MAX_ROADS:
+    if g._has(pid, C.COST_ROAD) and len(g._roads_of(pid)) < g.max_roads:
         spots = g.legal_road_spots(pid)
         if spots:
             return {"type": "build_road", "edge": spots[0]}
@@ -128,7 +127,7 @@ def _robber(g, pid):
             continue
         owners = {}
         on_self = False
-        for v in GEOMETRY["hex_vertices"][h]:
+        for v in g.geo["hex_vertices"][h]:
             b = g.buildings.get(v)
             if not b:
                 continue
