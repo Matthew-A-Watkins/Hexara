@@ -11,6 +11,7 @@ Nothing in here knows about networking or rendering.
 
 import random
 
+from . import casino
 from . import constants as C
 from . import maps
 
@@ -31,6 +32,8 @@ _RULE_SPECS = {
     "maxSettlements": (C.MAX_SETTLEMENTS, 1, 40),
     "maxCities": (C.MAX_CITIES, 0, 40),
     "bankPerResource": (C.BANK_PER_RESOURCE, 1, 400),
+    "beansPerResource": (C.BEANS_PER_RESOURCE, 1, 1000),
+    "beansPerVictoryPoint": (C.BEANS_PER_VP, 1, 100000),
 }
 
 
@@ -95,6 +98,10 @@ class Game:
                 "dev": {k: 0 for k in C.DEV_CARD_COUNTS},      # playable
                 "dev_new": {k: 0 for k in C.DEV_CARD_COUNTS},  # bought this turn
                 "played_knights": 0,
+                "gained": _empty_hand(),   # cumulative resources gained (for stats)
+                "beans": 0,                # gambling currency (never negative)
+                "bought_vp": 0,            # victory points purchased with beans
+                "bj": None,                # blackjack table state (lazy)
             }
 
         self._make_board(config.get("map") or {})
@@ -126,6 +133,13 @@ class Game:
         self.largest_army_owner = None
 
         self.winner = None
+        self.roll_counts = {n: 0 for n in range(2, 13)}  # dice-total histogram
+        # Shared casino table: one shoe & seen-list for the whole room so card
+        # counting is communal ("the table exists between all players").
+        self.bj_shoe = None
+        self.bj_seen = []
+        self.bj_tips = 0          # total beans tipped to the dealer (a bean sink)
+        self.bj_message = "Welcome to the table! Place a bet."
         self.log = []
         self._log("Game started. Place your first settlement.")
 
@@ -143,6 +157,8 @@ class Game:
         self.max_settlements = r["maxSettlements"]
         self.max_cities = r["maxCities"]
         self.bank_per_resource = r["bankPerResource"]
+        self.beans_per_resource = r["beansPerResource"]
+        self.beans_per_vp = r["beansPerVictoryPoint"]
 
     def rules_view(self):
         """The active rule numbers, for serialization to clients."""
@@ -153,6 +169,8 @@ class Game:
             "maxSettlements": self.max_settlements,
             "maxCities": self.max_cities,
             "bankPerResource": self.bank_per_resource,
+            "beansPerResource": self.beans_per_resource,
+            "beansPerVictoryPoint": self.beans_per_vp,
         }
 
     # ------------------------------------------------------------------ setup
@@ -240,6 +258,8 @@ class Game:
 
     def _gain(self, pid, resource, n=1):
         self.players[pid]["resources"][resource] += n
+        if n > 0:
+            self.players[pid]["gained"][resource] += n
 
     def _dev_count(self, pid):
         p = self.players[pid]
@@ -335,10 +355,22 @@ class Game:
             "accept_trade": self._h_accept_trade,
             "cancel_trade": self._h_cancel_trade,
             "end_turn": self._h_end_turn,
+            # Casino / beans economy (allowed off-turn).
+            "convert_to_beans": self._h_convert_to_beans,
+            "convert_to_resources": self._h_convert_to_resources,
+            "convert_dev_to_beans": self._h_convert_dev_to_beans,
+            "buy_vp": self._h_buy_vp,
+            "sell_vp": self._h_sell_vp,
+            "bj_bet": self._h_bj_bet,
+            "bj_hit": self._h_bj_hit,
+            "bj_stand": self._h_bj_stand,
+            "bj_double": self._h_bj_double,
+            "bj_split": self._h_bj_split,
+            "bj_tip": self._h_bj_tip,
         }.get(action.get("type"))
         self._require(handler is not None, "Unknown action: %r" % action.get("type"))
         handler(pid, action)
-        self._check_win()
+        self._check_win(pid)
 
     # ------------------------------------------------------------- setup phase
     def _h_setup_settlement(self, pid, action):
@@ -394,6 +426,7 @@ class Game:
         self.dice = (d1, d2)
         self.dice_rolled = True
         total = d1 + d2
+        self.roll_counts[total] = self.roll_counts.get(total, 0) + 1
         self._log("%s rolled %d (%d+%d)." % (self._name(pid), total, d1, d2))
         if total == 7:
             self._begin_robber(steal_only=False)
@@ -658,17 +691,42 @@ class Game:
         self._require_can_build(pid)
         give = action.get("give")
         recv = action.get("receive")
-        self._require(give in C.RESOURCES and recv in C.RESOURCES, "Invalid resources.")
-        self._require(give != recv, "Trade for a different resource.")
-        ratio = self._port_ratios(pid)[give]
-        self._require(self.players[pid]["resources"][give] >= ratio,
-                      "You need %d %s for that trade." % (ratio, give))
-        self._require(self.bank[recv] >= 1, "The bank is out of %s." % recv)
-        self.players[pid]["resources"][give] -= ratio
-        self.bank[give] += ratio
-        self._gain(pid, recv, 1)
-        self.bank[recv] -= 1
-        self._log("%s traded %d %s for 1 %s with the bank." % (self._name(pid), ratio, give, recv))
+        ratios = self._port_ratios(pid)
+        # Backward-compatible single form: give/receive are resource strings,
+        # meaning "ratio of give for 1 of receive".
+        if isinstance(give, str) and isinstance(recv, str):
+            self._require(give in C.RESOURCES and recv in C.RESOURCES, "Invalid resources.")
+            give = {give: ratios[give]}
+            recv = {recv: 1}
+        # General form: give/receive are bundles. Each give amount must be a whole
+        # multiple of that resource's best ratio, and the number of cards bought
+        # must equal the number paid for — so you can do several 2:1s at once.
+        give = self._norm_bundle(give)
+        recv = self._norm_bundle(recv)
+        self._require(give and recv, "Choose what to give and what to receive.")
+        credits = 0
+        for r, n in give.items():
+            self._require(n % ratios[r] == 0,
+                          "You must give %s in multiples of %d (your rate)." % (r, ratios[r]))
+            credits += n // ratios[r]
+        recv_total = sum(recv.values())
+        self._require(credits == recv_total,
+                      "Unbalanced trade: %d cards in pays for %d, not %d." %
+                      (sum(give.values()), credits, recv_total))
+        for r in recv:
+            self._require(r not in give, "Trade for a different resource.")
+        self._require(self._has(pid, give), "You don't have those cards to give.")
+        for r, n in recv.items():
+            self._require(self.bank[r] >= n, "The bank is out of %s." % r)
+        for r, n in give.items():
+            self.players[pid]["resources"][r] -= n
+            self.bank[r] += n
+        for r, n in recv.items():
+            self._gain(pid, r, n)
+            self.bank[r] -= n
+        give_s = ", ".join("%d %s" % (n, r) for r, n in give.items())
+        recv_s = ", ".join("%d %s" % (n, r) for r, n in recv.items())
+        self._log("%s traded %s for %s with the bank." % (self._name(pid), give_s, recv_s))
 
     def _norm_bundle(self, bundle):
         out = {}
@@ -716,6 +774,318 @@ class Game:
         self._require(pid == self.trade["from"], "Only the proposer can cancel.")
         self.trade = None
         self._log("%s withdrew their trade offer." % self._name(pid))
+
+    # ===================================================== casino / beans
+    # These run off-turn: gambling and currency swaps don't need it to be your
+    # turn, but the game must be underway. Beans can never go negative.
+    def _require_casino(self, pid):
+        self._require(self.phase == "main", "The casino opens once the game is underway.")
+
+    def _h_convert_to_beans(self, pid, action):
+        self._require_casino(pid)
+        give = self._norm_bundle(action.get("resources"))
+        self._require(give, "Choose resources to cash in for beans.")
+        self._require(self._has(pid, give), "You don't have those cards.")
+        total = sum(give.values())
+        for r, n in give.items():
+            self.players[pid]["resources"][r] -= n
+            self.bank[r] += n
+        gained = total * self.beans_per_resource
+        self.players[pid]["beans"] += gained
+        self._log("%s cashed %d card(s) in for %d beans." % (self._name(pid), total, gained))
+
+    def _h_convert_to_resources(self, pid, action):
+        self._require_casino(pid)
+        recv = self._norm_bundle(action.get("resources"))
+        self._require(recv, "Choose resources to buy with beans.")
+        total = sum(recv.values())
+        cost = total * self.beans_per_resource
+        self._require(self.players[pid]["beans"] >= cost,
+                      "You need %d beans for that (you have %d)." % (cost, self.players[pid]["beans"]))
+        for r, n in recv.items():
+            self._require(self.bank[r] >= n, "The bank is out of %s." % r)
+        self.players[pid]["beans"] -= cost
+        for r, n in recv.items():
+            self._gain(pid, r, n)
+            self.bank[r] -= n
+        self._log("%s spent %d beans on %d resource card(s)." % (self._name(pid), cost, total))
+
+    def _h_buy_vp(self, pid, action):
+        self._require_casino(pid)
+        amount = self._pos_int(action.get("amount"), "victory points")
+        cost = amount * self.beans_per_vp
+        self._require(self.players[pid]["beans"] >= cost,
+                      "You need %d beans for %d VP (you have %d)." %
+                      (cost, amount, self.players[pid]["beans"]))
+        self.players[pid]["beans"] -= cost
+        self.players[pid]["bought_vp"] += amount
+        self._log("%s bought %d victory point(s) for %d beans." % (self._name(pid), amount, cost))
+
+    def _h_sell_vp(self, pid, action):
+        self._require_casino(pid)
+        amount = self._pos_int(action.get("amount"), "victory points")
+        self._require(self.players[pid]["bought_vp"] >= amount,
+                      "You can only sell victory points you bought with beans.")
+        self.players[pid]["bought_vp"] -= amount
+        gained = amount * self.beans_per_vp
+        self.players[pid]["beans"] += gained
+        self._log("%s sold %d victory point(s) for %d beans." % (self._name(pid), amount, gained))
+
+    def _pos_int(self, v, what):
+        try:
+            v = int(v)
+        except (TypeError, ValueError):
+            raise GameError("Choose a whole number of %s." % what)
+        self._require(v > 0, "Choose at least one %s." % what.rstrip("s"))
+        return v
+
+    def _h_convert_dev_to_beans(self, pid, action):
+        """Sell development cards for beans at half the resource rate
+        (1 dev card = beansPerResource/2 = 10 beans by default)."""
+        self._require_casino(pid)
+        cards = action.get("cards") or {}
+        p = self.players[pid]
+        want = {}
+        total = 0
+        for k, n in cards.items():
+            self._require(k in C.DEV_CARD_COUNTS, "Unknown development card.")
+            n = int(n)
+            self._require(n >= 0, "Whole cards only.")
+            if n:
+                have = p["dev"].get(k, 0) + p["dev_new"].get(k, 0)
+                self._require(have >= n, "You don't have %d %s card(s)." % (n, k))
+                want[k] = n
+                total += n
+        self._require(total > 0, "Choose development cards to cash in.")
+        for k, n in want.items():
+            take = min(p["dev"].get(k, 0), n)
+            p["dev"][k] -= take
+            rest = n - take
+            if rest:
+                p["dev_new"][k] -= rest
+        per_card = self.beans_per_resource // 2
+        gained = total * per_card
+        p["beans"] += gained
+        self._log("%s cashed %d development card(s) in for %d beans." % (self._name(pid), total, gained))
+
+    # ---- blackjack (shared shoe, per-player hands) ----
+    def _bj_shoe_obj(self):
+        if self.bj_shoe is None:
+            self.bj_shoe = casino.new_shoe(self.rng)
+            self.bj_seen = []
+        return self.bj_shoe
+
+    def _bj(self, pid):
+        """The player's seat at the shared table, created on demand."""
+        p = self.players[pid]
+        if p["bj"] is None:
+            p["bj"] = {"state": "idle", "hands": [], "dealer": [], "active": 0,
+                       "dealerHidden": True, "net": 0, "streak": 0, "mood": "happy"}
+        return p["bj"]
+
+    def _bj_draw(self):
+        """Draw the next card from the shared shoe, reshuffling at the cut."""
+        self._bj_shoe_obj()
+        if casino.needs_shuffle(self.bj_shoe):
+            self.bj_shoe = casino.new_shoe(self.rng)
+            self.bj_seen = []
+            self.bj_message = "Fresh shoe! Six decks, shuffled up."
+        card = self.bj_shoe.pop()
+        self.bj_seen.append(card)
+        return card
+
+    def _h_bj_bet(self, pid, action):
+        self._require_casino(pid)
+        bj = self._bj(pid)
+        self._require(bj["state"] in ("idle", "done"), "Finish the current hand first.")
+        bet = self._pos_int(action.get("amount"), "beans")
+        self._require(bet >= C.BLACKJACK_MIN_BET, "Minimum bet is %d bean(s)." % C.BLACKJACK_MIN_BET)
+        self._require(self.players[pid]["beans"] >= bet,
+                      "You only have %d beans." % self.players[pid]["beans"])
+        self.players[pid]["beans"] -= bet
+        bj["net"] = 0
+        bj["mood"] = "dealing"
+        bj["dealer"] = [self._bj_draw(), self._bj_draw()]
+        bj["dealerHidden"] = True
+        bj["hands"] = [{"cards": [self._bj_draw(), self._bj_draw()],
+                        "bet": bet, "done": False, "result": None}]
+        bj["active"] = 0
+        bj["state"] = "player"
+        self.bj_message = "Cards out for %s." % self._name(pid)
+        # Naturals: peek on a ten/ace up, settle immediately on any blackjack.
+        player_bj = casino.is_blackjack(bj["hands"][0]["cards"])
+        dealer_bj = casino.is_blackjack(bj["dealer"])
+        if player_bj or dealer_bj:
+            bj["hands"][0]["done"] = True
+            self._bj_finish(pid)
+            return
+        self._log("%s dealt a blackjack hand (bet %d)." % (self._name(pid), bet))
+
+    def _bj_active(self, bj):
+        return bj["hands"][bj["active"]]
+
+    def _require_bj_turn(self, pid):
+        bj = self._bj(pid)
+        self._require(bj["state"] == "player", "No blackjack hand in progress.")
+        return bj
+
+    def _h_bj_hit(self, pid, action):
+        bj = self._require_bj_turn(pid)
+        hand = self._bj_active(bj)
+        hand["cards"].append(self._bj_draw())
+        if casino.is_bust(hand["cards"]):
+            hand["done"] = True
+            hand["result"] = "bust"
+            self._bj_advance(pid)
+
+    def _h_bj_stand(self, pid, action):
+        bj = self._require_bj_turn(pid)
+        self._bj_active(bj)["done"] = True
+        self._bj_advance(pid)
+
+    def _h_bj_double(self, pid, action):
+        bj = self._require_bj_turn(pid)
+        hand = self._bj_active(bj)
+        self._require(len(hand["cards"]) == 2, "You can only double on your first two cards.")
+        self._require(self.players[pid]["beans"] >= hand["bet"], "Not enough beans to double.")
+        self.players[pid]["beans"] -= hand["bet"]
+        hand["bet"] *= 2
+        hand["cards"].append(self._bj_draw())
+        hand["done"] = True
+        if casino.is_bust(hand["cards"]):
+            hand["result"] = "bust"
+        self._bj_advance(pid)
+
+    def _h_bj_split(self, pid, action):
+        bj = self._require_bj_turn(pid)
+        hand = self._bj_active(bj)
+        self._require(casino.can_split(hand["cards"]), "Those cards can't be split.")
+        self._require(len(bj["hands"]) < 4, "You can't split again.")
+        self._require(self.players[pid]["beans"] >= hand["bet"], "Not enough beans to split.")
+        self.players[pid]["beans"] -= hand["bet"]
+        moved = hand["cards"].pop()
+        new_hand = {"cards": [moved], "bet": hand["bet"], "done": False, "result": None}
+        hand["cards"].append(self._bj_draw())
+        new_hand["cards"].append(self._bj_draw())
+        bj["hands"].insert(bj["active"] + 1, new_hand)
+        # Split aces receive one card each and stand automatically.
+        if casino.rank_of(moved) == "A":
+            hand["done"] = True
+            new_hand["done"] = True
+            self._bj_advance(pid)
+
+    def _bj_advance(self, pid):
+        bj = self._bj(pid)
+        while bj["active"] < len(bj["hands"]) and bj["hands"][bj["active"]]["done"]:
+            bj["active"] += 1
+        if bj["active"] < len(bj["hands"]):
+            self.bj_message = "Play hand %d, %s." % (bj["active"] + 1, self._name(pid))
+            return
+        self._bj_finish(pid)
+
+    def _bj_finish(self, pid):
+        bj = self._bj(pid)
+        bj["dealerHidden"] = False
+        # Dealer draws to 17 (stands on all 17) only if some hand can still win.
+        if any(not casino.is_bust(h["cards"]) for h in bj["hands"]):
+            while casino.best(bj["dealer"]) < 17:
+                bj["dealer"].append(self._bj_draw())
+        dealer_total = casino.best(bj["dealer"])
+        dealer_bj = casino.is_blackjack(bj["dealer"])
+        payout = 0
+        for h in bj["hands"]:
+            payout += self._bj_settle(h, dealer_total, dealer_bj)
+        self.players[pid]["beans"] += payout
+        bj["net"] = payout - sum(h["bet"] for h in bj["hands"])
+        bj["state"] = "done"
+        # Streak + the dealer's (very friendly) reaction.
+        if bj["net"] > 0:
+            bj["streak"] = bj["streak"] + 1 if bj["streak"] > 0 else 1
+        elif bj["net"] < 0:
+            bj["streak"] = bj["streak"] - 1 if bj["streak"] < 0 else -1
+        has_bj = any(h["result"] == "blackjack" for h in bj["hands"])
+        if has_bj or (bj["net"] > 0 and bj["streak"] >= 3):
+            bj["mood"] = "excited"
+        elif bj["net"] > 0:
+            bj["mood"] = "happy"
+        elif bj["net"] < 0:
+            bj["mood"] = "sad"
+        else:
+            bj["mood"] = "neutral"
+        self.bj_message = self._dealer_line(pid, bj)
+        self._log("%s finished blackjack: %+d beans." % (self._name(pid), bj["net"]))
+
+    def _dealer_line(self, pid, bj):
+        """A friendly, reactive line from the 8-bit dealer."""
+        name = self._name(pid)
+        net, streak = bj["net"], bj["streak"]
+        has_bj = any(h["result"] == "blackjack" for h in bj["hands"])
+        busted = all(h["result"] == "bust" for h in bj["hands"])
+        if has_bj:
+            return self.rng.choice([
+                "Blackjack!! Pays three-to-two — beautifully played, %s." % name,
+                "A natural! The cards adore you today, %s." % name])
+        if net > 0:
+            if streak >= 3:
+                return self.rng.choice([
+                    "%d wins in a row, %s — you're on fire! 🔥" % (streak, name),
+                    "The whole table's watching you, %s. What a run!" % name])
+            return self.rng.choice([
+                "Winner, winner! +%d beans for %s." % (net, name),
+                "Nicely done, %s — the house tips its visor to you." % name,
+                "That's how it's done! +%d to you, friend." % net])
+        if net == 0:
+            return self.rng.choice([
+                "A push — your beans stay right where they are.",
+                "Even money that time. Care to run it again, %s?" % name])
+        if busted:
+            return self.rng.choice([
+                "Busted! Tough one, %s — the cards giveth and taketh." % name,
+                "Over twenty-one. Shake it off, %s, the next is yours." % name])
+        if streak <= -3:
+            return self.rng.choice([
+                "Rough patch, %s. The shoe's bound to turn — chin up. 💛" % name,
+                "The house has been lucky against you, %s. Don't let it rattle you." % name])
+        return self.rng.choice([
+            "Dealer takes it this time. Better luck next hand, %s." % name,
+            "So close, %s. Want to run it back?" % name])
+
+    def _h_bj_tip(self, pid, action):
+        self._require_casino(pid)
+        amount = self._pos_int(action.get("amount"), "beans")
+        self._require(self.players[pid]["beans"] >= amount,
+                      "You only have %d beans." % self.players[pid]["beans"])
+        self.players[pid]["beans"] -= amount
+        self.bj_tips += amount
+        self._bj(pid)["mood"] = "thankful"
+        self.bj_message = self.rng.choice([
+            "Oh, %s, you shouldn't have! Thank you kindly! 💛" % self._name(pid),
+            "A tip?! You're too generous, %s — may the cards favor you!" % self._name(pid),
+            "Bless you, %s! Tips keep this old dealer smiling. 🎩" % self._name(pid)])
+        self._log("%s tipped the dealer %d beans." % (self._name(pid), amount))
+
+    def _bj_settle(self, hand, dealer_total, dealer_bj):
+        """Return the beans paid back for this hand (0 = lost the wager)."""
+        cards, bet = hand["cards"], hand["bet"]
+        if casino.is_bust(cards):
+            hand["result"] = "bust"
+            return 0
+        player_bj = casino.is_blackjack(cards)
+        if player_bj and not dealer_bj:
+            hand["result"] = "blackjack"
+            return bet + bet * C.BLACKJACK_PAYOUT_NUM // C.BLACKJACK_PAYOUT_DEN
+        total = casino.best(cards)
+        if dealer_bj and not player_bj:
+            hand["result"] = "lose"
+            return 0
+        if dealer_total > 21 or total > dealer_total:
+            hand["result"] = "win"
+            return bet * 2
+        if total == dealer_total:
+            hand["result"] = "push"
+            return bet
+        hand["result"] = "lose"
+        return 0
 
     # ------------------------------------------------------------- end of turn
     def _h_end_turn(self, pid, action):
@@ -813,6 +1183,7 @@ class Game:
             vp += C.VP_LONGEST_ROAD
         if self.largest_army_owner == pid:
             vp += C.VP_LARGEST_ARMY
+        vp += self.players[pid].get("bought_vp", 0)  # gambled VP is openly known
         return vp
 
     def total_vp(self, pid):
@@ -820,10 +1191,12 @@ class Game:
         vp_cards = p["dev"].get(C.DEV_VICTORY_POINT, 0) + p["dev_new"].get(C.DEV_VICTORY_POINT, 0)
         return self.public_vp(pid) + vp_cards
 
-    def _check_win(self):
+    def _check_win(self, actor=None):
         if self.phase != "main" or self.winner:
             return
-        actor = self.current_pid
+        # Normally the active player; for off-turn gambling, the player who acted.
+        if actor is None:
+            actor = self.current_pid
         if actor and self.total_vp(actor) >= self.vp_to_win:
             self.winner = actor
             self.phase = "ended"

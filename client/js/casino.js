@@ -1,0 +1,461 @@
+/* ============================================================
+   casino.js  ·  window.Casino
+   The shared casino table: an animated 8-bit dealer, a felt table where
+   every seated player's hand is visible, smooth card dealing, a chatty
+   dealer, tipping, an in-casino End Turn + Auto-sell, and a cashier that
+   swaps resources / dev cards / victory points for beans. Reads the
+   viewer's private `casino` block from App.state; all wagers are
+   server-authoritative. app.js calls refresh() on every state push.
+   ============================================================ */
+(function () {
+  "use strict";
+
+  var RES = ["wood", "brick", "sheep", "wheat", "ore"];
+  var RES_LABEL = { wood: "Wood", brick: "Brick", sheep: "Sheep", wheat: "Wheat", ore: "Ore" };
+  var DEV_ORDER = ["knight", "victory_point", "road_building", "year_of_plenty", "monopoly"];
+  var DEV_LABEL = { knight: "Knight", victory_point: "Victory Pt", road_building: "Road Build", year_of_plenty: "Yr Plenty", monopoly: "Monopoly" };
+  var SUIT = { S: "♠", H: "♥", D: "♦", C: "♣" };
+
+  function el(tag, cls, txt) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (txt != null) e.textContent = txt;
+    return e;
+  }
+  function clear(n) { while (n && n.firstChild) n.removeChild(n.firstChild); }
+  function nowMs() { return (window.performance && performance.now) ? performance.now() : 0; }
+
+  var Casino = {
+    bet: 1,
+    tip: 1,
+    vpAmt: 1,
+    sel: { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 },
+    devSel: { knight: 0, victory_point: 0, road_building: 0, year_of_plenty: 0, monopoly: 0 },
+    showCount: false,
+    showCashier: false,
+    _mood: "happy",
+    _raf: null,
+    _cardKeys: {},
+    _lastState: null,
+    _lastBjState: null,
+
+    open: function () {
+      var modal = el("div", "modal modal-wide casino-modal");
+      modal.appendChild(el("h2", null, "🎰 Casino"));
+      this._balance = el("div", "casino-balance");
+      modal.appendChild(this._balance);
+
+      // Felt table with the persistent dealer canvas + speech bubble.
+      var felt = el("div", "bj-felt");
+      var dealerWrap = el("div", "dealer-wrap");
+      this._canvas = el("canvas", "dealer-canvas");
+      this._canvas.width = 132; this._canvas.height = 132;
+      dealerWrap.appendChild(this._canvas);
+      this._bubble = el("div", "dealer-bubble");
+      dealerWrap.appendChild(this._bubble);
+      felt.appendChild(dealerWrap);
+      this._ctx = this._canvas.getContext("2d");
+      this._ctx.imageSmoothingEnabled = false;
+
+      this._dealerHand = el("div", "dealer-hand");
+      felt.appendChild(this._dealerHand);
+      this._seatsBox = el("div", "bj-seats");
+      felt.appendChild(this._seatsBox);
+      modal.appendChild(felt);
+
+      this._controls = el("div", "bj-area");
+      modal.appendChild(this._controls);
+
+      var actions = el("div", "modal-actions");
+      var close = el("button", "btn", "Close");
+      close.addEventListener("click", function () { UI.closeModal(); });
+      actions.appendChild(close);
+      modal.appendChild(actions);
+
+      UI._openModal(modal, "casino");
+      this._startAnim();
+      this.refresh();
+    },
+
+    close: function () {
+      if (this._raf) { cancelAnimationFrame(this._raf); this._raf = null; }
+    },
+
+    _me: function () {
+      var s = (window.App && App.state) || {};
+      return (s.players || []).filter(function (p) { return p.id === s.yourId; })[0] || null;
+    },
+
+    /* ===================== dealer animation ===================== */
+    _startAnim: function () {
+      var self = this;
+      function frame() {
+        if (UI._openModalKind !== "casino" || !self._ctx) { self._raf = null; return; }
+        self._drawDealer(self._ctx, self._canvas.width, self._canvas.height, self._mood, nowMs());
+        self._raf = requestAnimationFrame(frame);
+      }
+      if (this._raf) cancelAnimationFrame(this._raf);
+      this._raf = requestAnimationFrame(frame);
+    },
+
+    _drawDealer: function (ctx, W, H, mood, t) {
+      ctx.clearRect(0, 0, W, H);
+      var G = 18, px = Math.floor(Math.min(W, H) / G);
+      var ox = Math.floor((W - px * G) / 2), oy = Math.floor((H - px * G) / 2);
+      function R(x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(ox + x * px, oy + y * px, w * px, h * px); }
+      // head + ears
+      R(4, 4, 10, 10, "#f0c090");
+      R(4, 4, 10, 1, "#d8a874");
+      R(3, 7, 1, 3, "#f0c090"); R(14, 7, 1, 3, "#f0c090");
+      // hair + green dealer visor
+      R(4, 3, 10, 1, "#3a2a18");
+      R(3, 2, 12, 1, "#17593a");
+      R(3, 3, 12, 1, "#1f6b43");
+      R(2, 4, 14, 1, "#2e9c63");
+      // eyes (blink + mood)
+      var blink = (t % 3000) < 110;
+      this._drawEyes(R, mood, blink);
+      this._drawMouth(R, mood);
+      if (mood === "thankful" || mood === "excited") { R(4, 10, 1, 1, "#f0a0a0"); R(13, 10, 1, 1, "#f0a0a0"); }
+      // neck, collar, bowtie
+      R(7, 14, 4, 1, "#e8b06a");
+      R(3, 15, 12, 3, "#f3e6c8");
+      R(7, 15, 1, 2, "#c0392b"); R(10, 15, 1, 2, "#c0392b"); R(8, 15, 2, 1, "#c0392b"); R(8, 16, 2, 1, "#a52f22");
+      // dealing arm waggle
+      if (mood === "dealing") {
+        var arm = Math.round(Math.sin(t / 110));
+        R(14, 12 + arm, 3, 1, "#f3e6c8"); R(16, 12 + arm, 1, 1, "#f0c090");
+      }
+      // floating hearts when thankful
+      if (mood === "thankful") {
+        var hy = 4 - ((t / 320) % 7);
+        R(2, Math.round(hy), 1, 1, "#e8527a"); R(15, Math.round(hy + 1.5) % 7, 1, 1, "#e8527a");
+      }
+    },
+    _drawEyes: function (R, mood, blink) {
+      if (blink) { R(6, 7, 2, 1, "#3a2a18"); R(10, 7, 2, 1, "#3a2a18"); return; }
+      if (mood === "thankful") {
+        R(6, 7, 1, 1, "#1a1a1a"); R(7, 6, 1, 1, "#1a1a1a"); R(8, 7, 1, 1, "#1a1a1a");
+        R(10, 7, 1, 1, "#1a1a1a"); R(11, 6, 1, 1, "#1a1a1a"); R(12, 7, 1, 1, "#1a1a1a"); return;
+      }
+      if (mood === "excited") { R(6, 6, 2, 2, "#1a1a1a"); R(10, 6, 2, 2, "#1a1a1a"); R(6, 6, 1, 1, "#fff"); R(10, 6, 1, 1, "#fff"); return; }
+      if (mood === "sad") { R(6, 6, 2, 1, "#d8a874"); R(10, 6, 2, 1, "#d8a874"); R(6, 7, 2, 1, "#1a1a1a"); R(10, 7, 2, 1, "#1a1a1a"); return; }
+      R(6, 6, 1, 2, "#1a1a1a"); R(11, 6, 1, 2, "#1a1a1a");
+    },
+    _drawMouth: function (R, mood) {
+      if (mood === "excited") { R(7, 10, 4, 2, "#7d231a"); R(8, 11, 2, 1, "#fff"); return; }
+      if (mood === "happy" || mood === "thankful" || mood === "dealing") { R(6, 11, 1, 1, "#7d231a"); R(7, 12, 4, 1, "#7d231a"); R(11, 11, 1, 1, "#7d231a"); return; }
+      if (mood === "sad") { R(6, 12, 1, 1, "#7d231a"); R(7, 11, 4, 1, "#7d231a"); R(11, 12, 1, 1, "#7d231a"); return; }
+      R(7, 11, 4, 1, "#7d231a");
+    },
+
+    /* ===================== refresh ===================== */
+    refresh: function () {
+      if (UI._openModalKind !== "casino") return;
+      var me = this._me();
+      var c = me && me.casino;
+      if (!c) {
+        this._mood = "happy";
+        if (this._bubble) this._bubble.textContent = "The casino opens once the game is underway.";
+        clear(this._controls); clear(this._dealerHand); clear(this._seatsBox);
+        return;
+      }
+      this._mood = c.mood || "happy";
+      this._bubble.textContent = c.message || "Place a bet!";
+
+      // balances
+      clear(this._balance);
+      this._balance.appendChild(el("span", "bean-pill", "🫘 " + c.beans + " beans"));
+      this._balance.appendChild(el("span", "vp-pill", "★ " + c.boughtVp + " bought VP"));
+      this._balance.appendChild(el("span", "tip-pill", "🎩 " + c.tips + " tipped"));
+      var decks = (c.shoeLeft / 52).toFixed(1);
+      this._balance.appendChild(el("span", "rate-note", "Shoe " + c.shoeLeft + " (~" + decks + " decks)"));
+
+      // new round -> animate every card; otherwise only new ones
+      var t = c.table;
+      var st = t ? t.state : "idle";
+      if (st === "player" && this._lastState !== "player") this._cardKeys = {};
+      this._lastState = st;
+
+      this._renderDealerHand(t);
+      this._renderSeats(c);
+      this._renderControls(me, c);
+      this._bjSounds(c);
+    },
+
+    _isNew: function (key) {
+      if (this._cardKeys[key]) return false;
+      this._cardKeys[key] = 1;
+      return true;
+    },
+
+    _card: function (card, key) {
+      var box;
+      if (card === "back") {
+        box = el("div", "bjcard back");
+      } else {
+        var rank = card.slice(0, -1), suit = card.slice(-1);
+        var red = suit === "H" || suit === "D";
+        box = el("div", "bjcard" + (red ? " red" : ""));
+        box.appendChild(el("span", "bjcard-rank", rank));
+        box.appendChild(el("span", "bjcard-suit", SUIT[suit] || suit));
+      }
+      if (key && this._isNew(key)) box.classList.add("deal-in");
+      return box;
+    },
+
+    _renderDealerHand: function (t) {
+      clear(this._dealerHand);
+      var lbl = el("div", "bj-label", "Dealer" + (t && t.dealerValue != null ? " — " + t.dealerValue : ""));
+      this._dealerHand.appendChild(lbl);
+      var row = el("div", "bj-cards");
+      var self = this;
+      ((t && t.dealer) || []).forEach(function (card, i) { row.appendChild(self._card(card, "D:" + i)); });
+      if (!t || !t.dealer || !t.dealer.length) row.appendChild(el("span", "bj-empty", "—"));
+      this._dealerHand.appendChild(row);
+    },
+
+    _renderSeats: function (c) {
+      clear(this._seatsBox);
+      var self = this;
+      var seats = c.seats || [];
+      if (!seats.length) {
+        this._seatsBox.appendChild(el("div", "bj-empty-seats", "No one's playing yet — be the first to bet!"));
+        return;
+      }
+      seats.forEach(function (s) {
+        var seat = el("div", "bj-seat" + (s.you ? " you" : "") + (s.state === "player" ? " active" : ""));
+        var head = el("div", "seat-head");
+        var sw = el("span", "swatch"); sw.style.background = s.color || "#888";
+        head.appendChild(sw);
+        head.appendChild(el("span", "seat-name", s.name + (s.you ? " (you)" : "")));
+        head.appendChild(el("span", "seat-bet", "🫘 " + s.bet));
+        seat.appendChild(head);
+        s.hands.forEach(function (h, hi) {
+          var hand = el("div", "seat-hand");
+          var cards = el("div", "bj-cards");
+          h.cards.forEach(function (card, ci) { cards.appendChild(self._card(card, "S:" + s.id + ":" + hi + ":" + ci)); });
+          hand.appendChild(cards);
+          var meta = el("span", "seat-val", h.value + (h.bust ? " BUST" : ""));
+          if (h.result) {
+            meta.textContent += " · " + h.result;
+            if (h.result === "win" || h.result === "blackjack") meta.classList.add("win");
+            if (h.result === "lose" || h.result === "bust") meta.classList.add("lose");
+          }
+          hand.appendChild(meta);
+          seat.appendChild(hand);
+        });
+        if (s.net != null) seat.appendChild(el("div", "seat-net" + (s.net >= 0 ? " win" : " lose"), (s.net >= 0 ? "+" : "") + s.net + " beans"));
+        self._seatsBox.appendChild(seat);
+      });
+    },
+
+    /* ===================== controls ===================== */
+    _renderControls: function (me, c) {
+      var self = this;
+      clear(this._controls);
+      var t = c.table;
+      var playing = t && t.state === "player";
+
+      var main = el("div", "bj-controls");
+      if (playing) {
+        main.appendChild(this._cbtn("Hit", "hit", t.canHit, "bj_hit", "card"));
+        main.appendChild(this._cbtn("Stand", "stand", t.canStand, "bj_stand", null));
+        main.appendChild(this._cbtn("Double", "double", t.canDouble, "bj_double", "card"));
+        main.appendChild(this._cbtn("Split", "split", t.canSplit, "bj_split", "card"));
+      } else {
+        var betWrap = el("div", "bet-wrap");
+        betWrap.appendChild(el("span", "bet-label", "Bet"));
+        betWrap.appendChild(this._stepper("bet", Math.max(c.minBet, this.bet), c.minBet, c.beans).node);
+        main.appendChild(betWrap);
+        var deal = this._cbtn("Deal", "deal", c.canBet, "bj_bet", "chip", function () { return { amount: Math.max(c.minBet, self.bet) }; });
+        main.appendChild(deal);
+        if (c.beans < c.minBet) main.appendChild(el("span", "bj-warn", "Need beans — use the cashier below."));
+      }
+      this._controls.appendChild(main);
+
+      // tip + end turn + auto-sell
+      var extra = el("div", "bj-extra");
+      var tipWrap = el("div", "tip-wrap");
+      tipWrap.appendChild(el("span", "bet-label", "Tip"));
+      tipWrap.appendChild(this._stepper("tip", this.tip, 1, c.beans).node);
+      var tipBtn = this._cbtn("🎩 Tip dealer", "tip", c.beans >= this.tip && this.tip >= 1, "bj_tip", "cash", function () { return { amount: self.tip }; });
+      tipWrap.appendChild(tipBtn);
+      extra.appendChild(tipWrap);
+
+      var legal = (window.App && App.legal) || {};
+      var endBtn = el("button", "btn casino-btn end-turn", "End Turn");
+      endBtn.disabled = !legal.canEndTurn;
+      endBtn.title = legal.canEndTurn ? "End your turn without leaving the table" : "You can end your turn here once it's your turn and you've rolled";
+      endBtn.addEventListener("click", function () {
+        if (window.Sound) Sound.play("chip");
+        Net.sendAction({ type: "end_turn" });
+      });
+      extra.appendChild(endBtn);
+
+      var autoWrap = el("label", "opt-toggle casino-toggle");
+      autoWrap.title = "Automatically cash incoming resources into beans";
+      var cb = el("input"); cb.type = "checkbox"; cb.checked = !!(window.App && App.autoSell);
+      cb.addEventListener("change", function () { if (window.App) App.setAutoSell(this.checked); });
+      autoWrap.appendChild(cb);
+      autoWrap.appendChild(document.createTextNode(" Auto-sell"));
+      extra.appendChild(autoWrap);
+
+      var countBtn = el("button", "btn btn-sm", this.showCount ? "Hide count" : "Counting aid");
+      countBtn.addEventListener("click", function () { self.showCount = !self.showCount; self.refresh(); });
+      extra.appendChild(countBtn);
+      this._controls.appendChild(extra);
+
+      if (this.showCount) this._controls.appendChild(this._seenCards(c));
+
+      // cashier (collapsible)
+      var cashHead = el("button", "cashier-head", (this.showCashier ? "▼" : "▶") + " Cashier — swap resources, dev cards & VP for beans");
+      cashHead.addEventListener("click", function () { self.showCashier = !self.showCashier; self.refresh(); });
+      this._controls.appendChild(cashHead);
+      if (this.showCashier) this._controls.appendChild(this._cashier(me, c));
+    },
+
+    _cbtn: function (label, kind, enabled, action, sound, payload) {
+      var b = el("button", "btn casino-btn bj-" + kind, label);
+      b.disabled = !enabled;
+      if (enabled) b.addEventListener("click", function () {
+        if (sound && window.Sound) Sound.play(sound);
+        Net.sendAction(Object.assign({ type: action }, payload ? payload() : {}));
+      });
+      return b;
+    },
+
+    _stepper: function (field, value, min, max) {
+      var self = this;
+      var v = Math.max(min, Math.min(value, max == null ? value : max));
+      this[field] = v;
+      var node = el("span", "mini-stepper");
+      var minus = el("button", "btn btn-sm", "−");
+      var cnt = el("span", "pcount", String(v));
+      var plus = el("button", "btn btn-sm", "+");
+      function set(x) {
+        v = Math.max(min, max == null ? x : Math.min(x, max));
+        cnt.textContent = String(v); self[field] = v;
+      }
+      minus.addEventListener("click", function () { set(v - 1); });
+      plus.addEventListener("click", function () { set(v + 1); });
+      node.appendChild(minus); node.appendChild(cnt); node.appendChild(plus);
+      return { node: node };
+    },
+
+    _seenCards: function (c) {
+      var box = el("div", "bj-seen");
+      box.appendChild(el("div", "bj-label", "Cards seen this shoe (" + (c.seen ? c.seen.length : 0) + ") — shared by the whole table"));
+      var row = el("div", "bj-seen-row");
+      (c.seen || []).forEach(function (card) {
+        var rank = card.slice(0, -1), suit = card.slice(-1);
+        var red = suit === "H" || suit === "D";
+        row.appendChild(el("span", "seen-chip" + (red ? " red" : ""), rank + (SUIT[suit] || "")));
+      });
+      box.appendChild(row);
+      return box;
+    },
+
+    /* ===================== cashier ===================== */
+    _cashier: function (me, c) {
+      var self = this;
+      var have = me.resources || {};
+      var wrap = el("div", "cashier");
+
+      // resources <-> beans
+      wrap.appendChild(el("h4", null, "Resources · " + c.beansPerResource + " beans each"));
+      var resRow = el("div", "res-click-row");
+      RES.forEach(function (r) {
+        resRow.appendChild(UI._resClickCard(r, self.sel[r], 0, true, {
+          have: (have[r] || 0),
+          onChange: function (v) { self.sel[r] = v; upd(); },
+        }));
+      });
+      wrap.appendChild(resRow);
+      var resBtns = el("div", "trade-btns");
+      var sellBtn = el("button", "btn casino-btn", "Sell → beans");
+      var buyBtn = el("button", "btn casino-btn", "Buy ← beans");
+      resBtns.appendChild(sellBtn); resBtns.appendChild(buyBtn);
+      wrap.appendChild(resBtns);
+
+      // dev cards -> beans
+      var owned = DEV_ORDER.filter(function (d) { return (c.dev[d] || 0) + (c.devNew[d] || 0) > 0; });
+      if (owned.length) {
+        wrap.appendChild(el("h4", null, "Development cards · " + c.beansPerDev + " beans each"));
+        var devRow = el("div", "dev-cash-row");
+        owned.forEach(function (d) {
+          var max = (c.dev[d] || 0) + (c.devNew[d] || 0);
+          var cell = el("div", "dev-cash");
+          cell.appendChild(el("div", "dev-cash-name", DEV_LABEL[d] + " ×" + max));
+          cell.appendChild(self._devStepper(d, max).node);
+          devRow.appendChild(cell);
+        });
+        wrap.appendChild(devRow);
+        var devBtn = el("button", "btn casino-btn", "Cash in dev cards");
+        devBtn.addEventListener("click", function () {
+          var bundle = {}, any = false;
+          DEV_ORDER.forEach(function (d) { if (self.devSel[d] > 0) { bundle[d] = self.devSel[d]; any = true; } });
+          if (!any) { UI.toast("Pick development cards to cash in."); return; }
+          if (window.Sound) Sound.play("cash");
+          Net.sendAction({ type: "convert_dev_to_beans", cards: bundle });
+          self.devSel = { knight: 0, victory_point: 0, road_building: 0, year_of_plenty: 0, monopoly: 0 };
+        });
+        wrap.appendChild(devBtn);
+      }
+
+      // VP <-> beans
+      wrap.appendChild(el("h4", null, "Victory points · " + c.beansPerVp + " beans each"));
+      var vpRow = el("div", "vp-exchange");
+      vpRow.appendChild(this._stepper("vpAmt", this.vpAmt, 1, null).node);
+      var buyVp = el("button", "btn casino-btn", "Buy VP");
+      buyVp.disabled = c.beans < this.vpAmt * c.beansPerVp;
+      buyVp.addEventListener("click", function () { if (window.Sound) Sound.play("chip"); Net.sendAction({ type: "buy_vp", amount: self.vpAmt }); });
+      var sellVp = el("button", "btn casino-btn", "Sell VP");
+      sellVp.disabled = c.boughtVp < this.vpAmt;
+      sellVp.addEventListener("click", function () { if (window.Sound) Sound.play("cash"); Net.sendAction({ type: "sell_vp", amount: self.vpAmt }); });
+      vpRow.appendChild(buyVp); vpRow.appendChild(sellVp);
+      wrap.appendChild(vpRow);
+      var vpHint = el("span", "sub", this.vpAmt + " VP = " + this.vpAmt * c.beansPerVp + " beans");
+      wrap.appendChild(vpHint);
+
+      function total() { return RES.reduce(function (a, r) { return a + self.sel[r]; }, 0); }
+      function haveAll() { return RES.every(function (r) { return self.sel[r] <= (have[r] || 0); }); }
+      function upd() {
+        var n = total();
+        sellBtn.disabled = !(n > 0 && haveAll());
+        buyBtn.disabled = !(n > 0 && c.beans >= n * c.beansPerResource);
+      }
+      function bundle() { var o = {}, any = false; RES.forEach(function (r) { if (self.sel[r] > 0) { o[r] = self.sel[r]; any = true; } }); return any ? o : null; }
+      sellBtn.addEventListener("click", function () { var b = bundle(); if (!b) return; if (window.Sound) Sound.play("cash"); Net.sendAction({ type: "convert_to_beans", resources: b }); self.sel = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 }; });
+      buyBtn.addEventListener("click", function () { var b = bundle(); if (!b) return; if (window.Sound) Sound.play("chip"); Net.sendAction({ type: "convert_to_resources", resources: b }); self.sel = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 }; });
+      upd();
+      return wrap;
+    },
+
+    _devStepper: function (d, max) {
+      var self = this;
+      var v = Math.min(this.devSel[d] || 0, max);
+      this.devSel[d] = v;
+      var node = el("span", "mini-stepper");
+      var minus = el("button", "btn btn-sm", "−");
+      var cnt = el("span", "pcount", String(v));
+      var plus = el("button", "btn btn-sm", "+");
+      function set(x) { v = Math.max(0, Math.min(x, max)); cnt.textContent = String(v); self.devSel[d] = v; }
+      minus.addEventListener("click", function () { set(v - 1); });
+      plus.addEventListener("click", function () { set(v + 1); });
+      node.appendChild(minus); node.appendChild(cnt); node.appendChild(plus);
+      return { node: node };
+    },
+
+    _bjSounds: function (c) {
+      var st = c.table ? c.table.state : null;
+      if (st === "done" && this._lastBjState !== "done") {
+        var net = c.table.net || 0;
+        if (window.Sound) Sound.play(net > 0 ? "bjwin" : (net < 0 ? "bust" : "card"));
+      }
+      this._lastBjState = st;
+    },
+  };
+
+  window.Casino = Casino;
+})();

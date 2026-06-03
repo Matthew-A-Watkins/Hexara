@@ -13,6 +13,10 @@ Response `200`: `{ "requirePassword": false }` — whether `/api/join` needs an
 access code (set server-side via the `HEXARA_PASSWORD` env var). Fetch this on
 the join screen to decide whether to show the access-code field.
 
+### `GET /api/leaderboard`
+Response `200`: `{ "leaders": [ { "name": "Ada", "wins": 7 }, ... ] }` — all-time
+wins by player name (case-insensitive), highest first, persisted server-side.
+
 ### `POST /api/join`
 Request: `{ "room": "<CODE>" | "", "name": "<string>", "password": "<string>"? }`
 - Empty/missing `room` creates a new room and makes you the host.
@@ -68,7 +72,9 @@ You do **not** read game state from the action response — wait for the next po
   "maxRoads": 15,           // per-player piece limits
   "maxSettlements": 5,
   "maxCities": 4,
-  "bankPerResource": 19     // cards of each resource in the bank (1–400)
+  "bankPerResource": 19,    // cards of each resource in the bank (1–400)
+  "beansPerResource": 20,   // casino: beans <-> 1 resource card (1–1000)
+  "beansPerVictoryPoint": 200  // casino: beans <-> 1 victory point (1–100000)
 }
 ```
 
@@ -115,6 +121,7 @@ Terrains: `forest|hills|pasture|fields|mountains|desert`. Number tokens are 2–
   "devDeckCount": 25,
   "longestRoadOwner": "<id>"|null, "longestRoadLen": 0,
   "largestArmyOwner": "<id>"|null,
+  "rollStats": { "2": 1, "3": 4, ... "12": 2 },   // dice-total histogram (for the Stats menu)
   "players": [ <PlayerView> ... ],
   "board": <Board>,
   "log": [ "<string>", ... ]               // newest last, ~60 lines
@@ -133,10 +140,42 @@ Terrains: `forest|hills|pasture|fields|mountains|desert`. Number tokens are 2–
   "roadsLeft": 10, "settlementsLeft": 2, "citiesLeft": 3,
   "hasLongestRoad": false, "hasLargestArmy": true,
   "ports": ["3:1", "wheat"],     // port types this player can use
+  "beans": 40,                   // casino balance (public)
+  "boughtVp": 1,                 // victory points bought with beans (public; counts toward the win)
+  "gained": { "wood": 12, ... } | null,  // total resources accumulated — revealed only when the game ends
   // The following are non-null ONLY for yourId (your own private info):
   "resources": { "wood":1, "brick":0, "sheep":2, "wheat":1, "ore":0 } | null,
   "dev":    { "knight":1, "victory_point":0, "road_building":0, "year_of_plenty":0, "monopoly":0 } | null,  // playable
-  "devNew": { ... } | null       // bought this turn, not yet playable
+  "devNew": { ... } | null,      // bought this turn, not yet playable
+  "casino": <Casino> | null      // your private casino state (beans, rates, blackjack table)
+}
+```
+
+### `Casino` (self-only)
+The blackjack table is **shared**: one shoe and `seen` list for the whole room
+(communal card counting), with `seats` showing every player's hands. You still
+play your own hand heads-up against the dealer.
+```jsonc
+{
+  "beans": 40, "boughtVp": 1, "tips": 5,
+  "minBet": 1, "beansPerResource": 20, "beansPerVp": 200, "beansPerDev": 10,
+  "dev": { "knight": 2, ... }, "devNew": { ... },   // dev cards you can cash in
+  // shared table:
+  "shoeLeft": 300, "decks": 6, "seen": ["KS","7S",...],   // every dealt card, so counting works
+  "mood": "happy|sad|excited|thankful|neutral|dealing",   // the 8-bit dealer's mood toward you
+  "message": "Nicely done!",                              // the dealer's latest line
+  "canBet": true,
+  "seats": [ { "id","name","color","you","state","bet","net",
+               "hands": [ { "cards":["AH","KD"], "value":21, "result":"blackjack", "bust":false } ] } ],
+  // your own hand (null until you place a bet):
+  "table": {
+    "state": "idle|player|done",
+    "dealer": ["9D","back"], "dealerValue": null,   // hole card is "back" until the hand resolves
+    "hands": [ { "cards": ["KS","7S"], "bet": 5, "value": 17, "soft": false,
+                 "bust": false, "blackjack": false, "result": null, "active": true } ],
+    "active": 0, "net": 0,
+    "canHit": true, "canStand": true, "canDouble": true, "canSplit": false
+  }
 }
 ```
 
@@ -173,7 +212,8 @@ roads on edges (line from `v1` to `v2`).
   "setupSettlementSpots": [vId...],// during setup
   "setupRoadSpots": [eId...],
   "playableDev": ["knight","road_building","year_of_plenty","monopoly"],
-  "bankTrades": { "wood": 4, "wheat": 2 },   // resource -> best ratio you can give
+  "bankTrades": { "wood": 4, "wheat": 2 },   // resource -> best ratio you can give (only ones you can afford)
+  "portRatios": { "wood": 4, "brick": 4, "sheep": 4, "wheat": 2, "ore": 4 },  // best ratio per resource (for multi-unit trades)
   "mustDiscard": 0,                // if > 0, you must POST a discard of this many
   "robberMove": false,             // you must move the robber
   "stealTargetsByHex": { "<hexId>": ["<playerId>", ...] },  // valid steal victims per hex
@@ -194,6 +234,11 @@ Lobby (before the game starts):
 - `{ "type": "lobby_leave" }`
 - `{ "type": "lobby_start" }`              (host only)
 
+Leaving a game **in progress** (`lobby_leave` or `surrender`) hands your seat to a
+bot — your pieces, resources and turn position are kept, the bot plays on, and
+your session is invalidated (your next poll/action returns `404`/`403`, so the
+client returns to the join screen).
+
 Setup:
 - `{ "type": "place_setup_settlement", "vertex": <vId> }`
 - `{ "type": "place_setup_road", "edge": <eId> }`
@@ -208,11 +253,22 @@ Main turn:
 - `{ "type": "play_road_building" }`                       // grants 2 free roads
 - `{ "type": "play_year_of_plenty", "resources": ["ore","wheat"] }`
 - `{ "type": "play_monopoly", "resource": "ore" }`
-- `{ "type": "bank_trade", "give": "wood", "receive": "ore" }`   // uses your best ratio
+- `{ "type": "bank_trade", "give": "wood", "receive": "ore" }`   // single trade at your best ratio
+- `{ "type": "bank_trade", "give": {"wheat":4}, "receive": {"ore":2} }`  // multi-unit: each give amount is a multiple of its rate; cards out == cards paid for
 - `{ "type": "propose_trade", "give": {"wood":1}, "receive": {"ore":1}, "to": "<id>"|null }`
 - `{ "type": "accept_trade" }`
 - `{ "type": "cancel_trade" }`                             // proposer only
 - `{ "type": "end_turn" }`
+
+Casino / beans (allowed off-turn, once the game is underway):
+- `{ "type": "convert_to_beans", "resources": {"wood":2} }`       // sell cards for beans (20 each)
+- `{ "type": "convert_to_resources", "resources": {"ore":1} }`    // buy cards with beans
+- `{ "type": "convert_dev_to_beans", "cards": {"knight":1} }`     // sell dev cards (beansPerResource/2 = 10 each)
+- `{ "type": "buy_vp", "amount": 1 }`                             // beans -> victory points (counts toward the win)
+- `{ "type": "sell_vp", "amount": 1 }`                            // sell beans-bought VP back for beans
+- `{ "type": "bj_bet", "amount": 5 }`                             // deal a blackjack hand (>= minBet beans)
+- `{ "type": "bj_hit" }` · `{ "type": "bj_stand" }` · `{ "type": "bj_double" }` · `{ "type": "bj_split" }`
+- `{ "type": "bj_tip", "amount": 2 }`                             // tip the dealer (a beans sink; the dealer cheers)
 
 Robber / 7:
 - `{ "type": "discard", "resources": { "wood": 2, "ore": 1 } }`   // sum == mustDiscard

@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.game import GameError  # noqa: E402
 from server import manager  # noqa: E402
+from server import leaderboard  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENT_DIR = os.path.join(ROOT, "client")
@@ -81,6 +82,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True})
         if path == "/api/config":
             return self._send_json({"requirePassword": manager.requires_password()})
+        if path == "/api/leaderboard":
+            return self._send_json({"leaders": leaderboard.top(20)})
         if path == "/api/poll":
             return self._handle_poll(parse_qs(parsed.query))
         return self._serve_static(path)

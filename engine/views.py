@@ -7,6 +7,7 @@ which moves the player may make right now, so the UI can highlight valid spots
 and enable the right buttons. The client never needs the rules itself.
 """
 
+from . import casino
 from . import constants as C
 
 
@@ -33,10 +34,15 @@ def serialize(game, viewer):
             "hasLongestRoad": g.longest_road_owner == pid,
             "hasLargestArmy": g.largest_army_owner == pid,
             "ports": _owned_ports(g, pid),
+            "beans": p.get("beans", 0),          # public gambling balance
+            "boughtVp": p.get("bought_vp", 0),   # VP bought with beans (public)
+            # Resource accumulation is only revealed once the game is over.
+            "gained": dict(p["gained"]) if g.phase == "ended" else None,
             # Self-only private information:
             "resources": dict(p["resources"]) if is_self else None,
             "dev": dict(p["dev"]) if is_self else None,
             "devNew": dict(p["dev_new"]) if is_self else None,
+            "casino": _casino_view(g, pid) if is_self else None,
         }
         if pid == g.winner:
             entry["vp"] = g.total_vp(pid)  # reveal winner's true total
@@ -63,10 +69,91 @@ def serialize(game, viewer):
         "longestRoadOwner": g.longest_road_owner,
         "longestRoadLen": g.longest_road_len,
         "largestArmyOwner": g.largest_army_owner,
+        "rollStats": dict(g.roll_counts),
         "players": players,
         "board": _board_view(g),
         "log": g.log[-60:],
     }
+
+
+def _casino_view(g, pid):
+    """The viewer's private casino state: beans, exchange rates, the shared
+    table (one shoe + every player's hands so counting & the table are communal)
+    and the viewer's own hand."""
+    p = g.players[pid]
+    beans = p.get("beans", 0)
+    bj = p.get("bj")
+    out = {
+        "beans": beans,
+        "boughtVp": p.get("bought_vp", 0),
+        "minBet": C.BLACKJACK_MIN_BET,
+        "beansPerResource": g.beans_per_resource,
+        "beansPerVp": g.beans_per_vp,
+        "beansPerDev": g.beans_per_resource // 2,
+        "dev": dict(p["dev"]),            # development cards you can cash in
+        "devNew": dict(p["dev_new"]),
+        # shared table
+        "shoeLeft": len(g.bj_shoe) if g.bj_shoe else C.BLACKJACK_DECKS * 52,
+        "decks": C.BLACKJACK_DECKS,
+        "seen": list(g.bj_seen),
+        "tips": g.bj_tips,
+        "message": g.bj_message,
+        "mood": bj["mood"] if bj else "happy",
+        "seats": _bj_seats(g, pid),
+        "canBet": (not bj or bj["state"] in ("idle", "done")) and beans >= C.BLACKJACK_MIN_BET,
+        "table": None,
+    }
+    if not bj or (not bj["hands"] and bj["state"] == "idle"):
+        return out
+
+    hidden = bj["dealerHidden"]
+    dealer = bj["dealer"]
+    dealer_cards = ([dealer[0], "back"] + ["back"] * (len(dealer) - 2)) if hidden and dealer else list(dealer)
+    active = bj.get("active", 0)
+    hands = []
+    for i, h in enumerate(bj["hands"]):
+        total, soft = casino.hand_value(h["cards"])
+        hands.append({
+            "cards": list(h["cards"]), "bet": h["bet"], "done": h["done"],
+            "result": h["result"], "value": total, "soft": soft,
+            "bust": casino.is_bust(h["cards"]), "blackjack": casino.is_blackjack(h["cards"]),
+            "active": (bj["state"] == "player" and i == active),
+        })
+    in_play = bj["state"] == "player"
+    cur = bj["hands"][active] if (in_play and active < len(bj["hands"])) else None
+    out["table"] = {
+        "state": bj["state"],
+        "dealer": dealer_cards,
+        "dealerValue": None if hidden else casino.best(dealer),
+        "dealerHidden": hidden,
+        "hands": hands,
+        "active": active,
+        "net": bj.get("net", 0),
+        "canHit": in_play,
+        "canStand": in_play,
+        "canDouble": bool(cur and len(cur["cards"]) == 2 and beans >= cur["bet"]),
+        "canSplit": bool(cur and casino.can_split(cur["cards"]) and len(bj["hands"]) < 4 and beans >= cur["bet"]),
+    }
+    return out
+
+
+def _bj_seats(g, viewer):
+    """Every player currently sitting at the shared table (hands are face-up)."""
+    seats = []
+    for opid in g.order:
+        bj = g.players[opid].get("bj")
+        if not bj or bj["state"] == "idle" or not bj["hands"]:
+            continue
+        seats.append({
+            "id": opid, "name": g._name(opid), "color": g.players[opid]["color"],
+            "you": opid == viewer, "state": bj["state"],
+            "bet": sum(h["bet"] for h in bj["hands"]),
+            "net": bj["net"] if bj["state"] == "done" else None,
+            "hands": [{"cards": list(h["cards"]), "value": casino.best(h["cards"]),
+                       "result": h["result"], "bust": casino.is_bust(h["cards"])}
+                      for h in bj["hands"]],
+        })
+    return seats
 
 
 def _trade_view(g):
@@ -142,6 +229,7 @@ def legal_actions(game, viewer):
         "setupRoadSpots": [],
         "playableDev": [],
         "bankTrades": {},
+        "portRatios": {},
         "mustDiscard": g.pending_discards.get(viewer, 0),
         "robberMove": False,
         "stealTargetsByHex": {},
@@ -219,6 +307,7 @@ def legal_actions(game, viewer):
         out["canBuyDev"] = True
 
     ratios = g._port_ratios(viewer)
+    out["portRatios"] = dict(ratios)  # best ratio per resource (for multi-unit trades)
     for r in C.RESOURCES:
         if p["resources"][r] >= ratios[r]:
             out["bankTrades"][r] = ratios[r]

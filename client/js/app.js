@@ -15,7 +15,16 @@
     _modeManual: false, // true if the user explicitly entered a build mode (so we don't auto-cancel)
     _stealHex: null,
 
+    autoRoll: false,
+    autoSell: false,
+
     boot: function () {
+      Sound.init();
+      try {
+        App.autoRoll = localStorage.getItem("hexara.autoroll") === "1";
+        App.autoSell = localStorage.getItem("hexara.autosell") === "1";
+      } catch (e) {}
+
       // Wire UI callbacks.
       UI.init({
         onJoin: function (name, room, password) {
@@ -131,6 +140,9 @@
         .then(function (cfg) { UI.showPasswordField(!!(cfg && cfg.requirePassword)); })
         .catch(function () {});
 
+      // Show the all-time wins leaderboard on the join screen.
+      UI.loadLeaderboard();
+
       // Initial route: resume session or show join.
       if (Net.loadSession() && Net.hasSession()) {
         UI.show("game"); // optimistic; first SSE frame replaces it
@@ -164,6 +176,7 @@
         UI.show("join");
         UI.setJoinBusy(false);
         UI.joinError("");
+        UI.loadLeaderboard();
       });
     },
 
@@ -211,6 +224,95 @@
       // Render board with current highlight, then the rest of the DOM.
       BoardView.draw(state, App._highlightSpec());
       UI.renderGame(state, legal);
+
+      // Sounds, the your-turn glow, and auto-roll all react to the new state.
+      App._reactToState(prev, state, legal);
+      if (UI._openModalKind === "casino" && window.Casino) Casino.refresh();
+    },
+
+    // Sounds + visual cues + auto-roll, driven by what changed since last state.
+    _reactToState: function (prev, state, legal) {
+      var ended = state.phase === "ended";
+      var mine = state.currentPlayer === state.yourId;
+      var wasMine = prev && prev.currentPlayer === state.yourId;
+
+      // Your-turn cue (red border glow + chime) on the transition into your turn.
+      if (mine && !wasMine && !ended) {
+        UI.flashTurn();
+        Sound.play("turn");
+      }
+
+      // Dice landed (any player) — the roll histogram total ticks up by one.
+      var rolls = App._sumStats(state.rollStats);
+      if (App._lastRolls != null && rolls > App._lastRolls) Sound.play("dice");
+      App._lastRolls = rolls;
+
+      // A piece was placed anywhere on the board.
+      var pieces = App._countPieces(state);
+      if (App._lastPieces != null && pieces > App._lastPieces) Sound.play("build");
+      App._lastPieces = pieces;
+
+      if (state.robberPhase && !(prev && prev.robberPhase)) Sound.play("robber");
+      if (ended && !(prev && prev.phase === "ended")) Sound.play("win");
+
+      App._maybeAutoRoll(state, legal);
+      App._maybeAutoSell(state, legal);
+    },
+
+    setAutoSell: function (on) {
+      App.autoSell = !!on;
+      try { localStorage.setItem("hexara.autosell", on ? "1" : "0"); } catch (e) {}
+      if (on && App.state && App.legal) App._maybeAutoSell(App.state, App.legal);
+    },
+
+    // When on, automatically cash incoming resources into beans so you can keep
+    // gambling. Fires once per resource snapshot; a pending flag avoids overlaps.
+    _maybeAutoSell: function (state, legal) {
+      if (!App.autoSell || !state || state.phase !== "main" || App._autoSellPending) return;
+      var me = (state.players || []).filter(function (p) { return p.id === state.yourId; })[0];
+      if (!me || !me.resources) return;
+      var bundle = {}, any = false;
+      ["wood", "brick", "sheep", "wheat", "ore"].forEach(function (r) {
+        if (me.resources[r] > 0) { bundle[r] = me.resources[r]; any = true; }
+      });
+      if (!any) return;
+      App._autoSellPending = true;
+      Net.sendAction({ type: "convert_to_beans", resources: bundle }).then(function () {
+        App._autoSellPending = false;
+      });
+    },
+
+    _sumStats: function (stats) {
+      var n = 0;
+      if (stats) for (var k in stats) if (stats.hasOwnProperty(k)) n += stats[k] || 0;
+      return n;
+    },
+    _countPieces: function (state) {
+      var n = 0;
+      (state.players || []).forEach(function (p) {
+        n += (p.builtSettlements || 0) + (p.builtCities || 0) + (p.builtRoads || 0);
+      });
+      return n;
+    },
+
+    setAutoRoll: function (on) {
+      App.autoRoll = !!on;
+      try { localStorage.setItem("hexara.autoroll", on ? "1" : "0"); } catch (e) {}
+      if (on && App.state && App.legal) App._maybeAutoRoll(App.state, App.legal);
+    },
+
+    _maybeAutoRoll: function (state, legal) {
+      if (!App.autoRoll || state.phase !== "main") return;
+      if (!(legal.yourTurn && legal.canRoll && state.robberPhase == null && !state.diceRolled)) return;
+      // One auto-roll per roll opportunity (keyed so a re-render can't double it).
+      var key = state.currentPlayer + "#" + App._sumStats(state.rollStats);
+      if (App._autoRolledKey === key) return;
+      App._autoRolledKey = key;
+      setTimeout(function () {
+        if (App.autoRoll && App.legal && App.legal.canRoll && App.state && !App.state.diceRolled) {
+          Net.sendAction({ type: "roll_dice" });
+        }
+      }, 350);
     },
 
     /* ===================== interaction modes ===================== */

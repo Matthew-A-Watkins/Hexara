@@ -31,6 +31,7 @@
         <button id="join-btn" type="submit" class="btn btn-primary btn-big">Join / Create Game</button>
         <p id="join-error" class="form-error" role="alert"></p>
       </form>
+      <div id="join-leaderboard" class="leaderboard"></div>
     </div>
   </section>
 
@@ -82,6 +83,8 @@
             <label class="field"><span>Max settlements</span><input id="setup-maxSettlements" type="number" /></label>
             <label class="field"><span>Max cities</span><input id="setup-maxCities" type="number" /></label>
             <label class="field"><span>Bank / resource</span><input id="setup-bankPerResource" type="number" /></label>
+            <label class="field"><span>Beans / resource</span><input id="setup-beansPerResource" type="number" /></label>
+            <label class="field"><span>Beans / victory point</span><input id="setup-beansPerVictoryPoint" type="number" /></label>
           </div>
           <div class="setup-map-row">
             <button id="setup-edit-map" class="btn">Open Map Editor…</button>
@@ -133,6 +136,8 @@
           <span class="award-ico">⚔</span><span class="stat-val">–</span>
         </div>
       </div>
+      <button id="topbar-leave" class="btn btn-danger btn-sm topbar-leave"
+              title="Leave the game — a bot takes over your seat">🏳 Surrender</button>
     </header>
 
     <!-- Main 3-column layout -->
@@ -163,12 +168,16 @@
   <!-- Modal host + toasts (top-level so they overlay any screen, incl. the lobby) -->
   <div id="modal-root" class="modal-root" hidden></div>
   <div id="toast-area" class="toast-area"></div>
+  <!-- Red border glow that flashes when your turn begins -->
+  <div id="turn-flash" class="turn-flash-overlay" aria-hidden="true"></div>
 
   <!-- Scripts in dependency order -->
   <script src="/js/net.js"></script>
+  <script src="/js/sound.js"></script>
   <script src="/js/board.js"></script>
   <script src="/js/ui.js"></script>
   <script src="/js/editor.js"></script>
+  <script src="/js/casino.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

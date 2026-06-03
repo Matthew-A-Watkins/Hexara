@@ -777,6 +777,224 @@ def variable_board_full_game():
     assert g.total_vp(g.winner) >= 5
 
 
+# --------------------------------------------- casino, beans, stats, leaderboard
+@test
+def multi_unit_bank_trade():
+    g = Game(PLAYERS, seed=30)
+    auto_setup(g)
+    g.dice_rolled = True
+    # 4:1 default — give 8 wood for 2 cards at once.
+    g.players["A"]["resources"] = {"wood": 8, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.apply("A", {"type": "bank_trade", "give": {"wood": 8}, "receive": {"ore": 1, "brick": 1}})
+    assert g.players["A"]["resources"]["wood"] == 0
+    assert g.players["A"]["resources"]["ore"] == 1
+    assert g.players["A"]["resources"]["brick"] == 1
+    # give a 2:1 wheat port and do two 2:1s in one action: 4 wheat -> 2 cards.
+    wheatport = next(p for p in g.geo["ports"] if p["type"] == "wheat")
+    g.buildings[wheatport["vertices"][0]] = {"type": "settlement", "owner": "A"}
+    assert g._port_ratios("A")["wheat"] == 2
+    g.players["A"]["resources"] = {"wood": 0, "brick": 0, "sheep": 0, "wheat": 4, "ore": 0}
+    g.apply("A", {"type": "bank_trade", "give": {"wheat": 4}, "receive": {"ore": 2}})
+    assert g.players["A"]["resources"]["ore"] == 2 and g.players["A"]["resources"]["wheat"] == 0
+    # unbalanced trade is rejected (3 wheat isn't a multiple of the 2:1 rate)
+    g.players["A"]["resources"]["wheat"] = 3
+    expect_error(lambda: g.apply("A", {"type": "bank_trade",
+                 "give": {"wheat": 3}, "receive": {"ore": 1}}), "multiple")
+
+
+@test
+def bean_exchanges_and_no_negative():
+    g = Game(PLAYERS, config={"rules": {"beansPerResource": 20, "beansPerVictoryPoint": 200}}, seed=31)
+    auto_setup(g)
+    g.players["A"]["resources"] = {"wood": 5, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
+    g.apply("A", {"type": "convert_to_beans", "resources": {"wood": 5}})
+    assert g.players["A"]["beans"] == 100
+    g.apply("A", {"type": "convert_to_resources", "resources": {"ore": 2}})
+    assert g.players["A"]["beans"] == 60 and g.players["A"]["resources"]["ore"] == 2
+    # beans can never go negative
+    expect_error(lambda: g.apply("A", {"type": "convert_to_resources", "resources": {"wheat": 10}}), "beans")
+    expect_error(lambda: g.apply("A", {"type": "buy_vp", "amount": 1}), "beans")
+
+
+@test
+def buy_victory_points_can_win():
+    g = Game(PLAYERS, config={"rules": {"victoryPoints": 5, "beansPerVictoryPoint": 100}}, seed=32)
+    auto_setup(g)
+    before = g.total_vp("A")
+    g.players["A"]["beans"] = 1000
+    # buy enough VP to win (off-turn gambling resolves immediately for the actor)
+    need = (g.vp_to_win - before)
+    g.apply("A", {"type": "buy_vp", "amount": need})
+    assert g.players["A"]["bought_vp"] == need
+    assert g.public_vp("A") >= g.vp_to_win  # bought VP is public
+    assert g.winner == "A" and g.phase == "ended"
+
+
+@test
+def sell_vp_only_what_you_bought():
+    g = Game(PLAYERS, config={"rules": {"beansPerVictoryPoint": 100}}, seed=33)
+    auto_setup(g)
+    g.players["A"]["beans"] = 300
+    g.apply("A", {"type": "buy_vp", "amount": 2})
+    assert g.players["A"]["beans"] == 100 and g.players["A"]["bought_vp"] == 2
+    expect_error(lambda: g.apply("A", {"type": "sell_vp", "amount": 3}), "bought")
+    g.apply("A", {"type": "sell_vp", "amount": 2})
+    assert g.players["A"]["beans"] == 300 and g.players["A"]["bought_vp"] == 0
+
+
+@test
+def blackjack_shoe_and_natural():
+    g = Game(PLAYERS, seed=34)
+    auto_setup(g)
+    g.players["A"]["beans"] = 100
+    assert len(g._bj_shoe_obj()) == 6 * 52  # fresh shared 6-deck shoe
+    # Stack the shared shoe so A gets a natural (A,K) vs a dealer 9,5. pop() draws
+    # from the end: dealer1, dealer2, hand1, hand2. Keep >1 deck so it won't reshuffle.
+    g.bj_shoe = ["2C"] * 60 + ["KH", "AS", "5C", "9D"]
+    g.bj_seen = []
+    g.apply("A", {"type": "bj_bet", "amount": 2})
+    bj = g._bj("A")
+    assert bj["hands"][0]["result"] == "blackjack"
+    assert g.players["A"]["beans"] == 100 - 2 + (2 + 2 * 3 // 2)  # 3:2 payout
+    assert g.players["A"]["beans"] >= 0
+
+
+@test
+def blackjack_shared_shoe_across_players():
+    g = Game(PLAYERS, seed=37)
+    auto_setup(g)
+    g.players["A"]["beans"] = 50
+    g.players["B"]["beans"] = 50
+    g.apply("A", {"type": "bj_bet", "amount": 1})
+    while g._bj("A")["state"] == "player":
+        g.apply("A", {"type": "bj_stand"})
+    seen_after_a = len(g.bj_seen)
+    g.apply("B", {"type": "bj_bet", "amount": 1})
+    # B draws from the SAME shoe A used — the shared seen-list keeps growing.
+    assert len(g.bj_seen) > seen_after_a
+    assert g.bj_shoe is not None
+
+
+@test
+def blackjack_penetration_reshuffle():
+    from engine import casino
+    g = Game(PLAYERS, seed=35)
+    auto_setup(g)
+    g.players["A"]["beans"] = 1000
+    g._bj_shoe_obj()
+    g.bj_shoe = ["2C"] * 10  # fewer than a deck left -> next draw reshuffles
+    g.bj_seen = []
+    assert casino.needs_shuffle(g.bj_shoe)
+    g.apply("A", {"type": "bj_bet", "amount": 1})
+    assert len(g.bj_shoe) > 52  # a fresh 312-card shoe was dealt from
+
+
+@test
+def stats_track_rolls_and_accumulation():
+    g = Game(PLAYERS, seed=36)
+    auto_setup(g)
+    g.apply("A", {"type": "roll_dice"})
+    assert sum(g.roll_counts.values()) == 1
+    total = g.dice[0] + g.dice[1]
+    assert g.roll_counts[total] == 1
+    # gained accrues on production / gains
+    g.players["B"]["gained"] = {r: 0 for r in C.RESOURCES}
+    g._gain("B", "wheat", 3)
+    assert g.players["B"]["gained"]["wheat"] == 3
+    # accumulation is hidden until the game ends
+    g.phase = "main"
+    assert views.serialize(g, "A")["players"][0]["gained"] is None
+    g.phase = "ended"
+    assert views.serialize(g, "A")["players"][0]["gained"] is not None
+
+
+@test
+def leaderboard_records_win_once():
+    import os
+    import tempfile
+    from server import manager, leaderboard
+    leaderboard._PATH = os.path.join(tempfile.gettempdir(), "hexara_lb_unit.json")
+    if os.path.exists(leaderboard._PATH):
+        os.remove(leaderboard._PATH)
+    room = manager.Room("TST")
+    room.players = [{"id": "A", "name": "Zelda", "color": "red", "token": "",
+                     "is_bot": False, "last_seen": 0}]
+    room.game = Game([{"id": "A", "name": "Zelda", "color": "red"},
+                      {"id": "B", "name": "Bot", "color": "blue"}],
+                     config={"rules": {"victoryPoints": 3}})
+    room.game.winner = "A"  # pretend A won
+    manager._maybe_record_win(room)
+    manager._maybe_record_win(room)  # idempotent — must not double-count
+    rows = {e["name"]: e["wins"] for e in leaderboard.top()}
+    assert rows.get("Zelda") == 1, rows
+    os.remove(leaderboard._PATH)
+
+
+# ----------------------------------------------------- wave 3: dev/tips/leave
+@test
+def convert_dev_cards_to_beans():
+    g = Game(PLAYERS, config={"rules": {"beansPerResource": 20}}, seed=38)
+    auto_setup(g)
+    g.players["A"]["dev"][C.DEV_KNIGHT] = 2
+    g.players["A"]["dev_new"][C.DEV_MONOPOLY] = 1
+    # 1 dev card = beansPerResource/2 = 10 beans (= 0.5 resource)
+    g.apply("A", {"type": "convert_dev_to_beans", "cards": {"knight": 2, "monopoly": 1}})
+    assert g.players["A"]["beans"] == 3 * 10
+    assert g.players["A"]["dev"][C.DEV_KNIGHT] == 0
+    assert g.players["A"]["dev_new"][C.DEV_MONOPOLY] == 0
+    # can't sell cards you don't have
+    expect_error(lambda: g.apply("A", {"type": "convert_dev_to_beans", "cards": {"knight": 1}}), "don't have")
+
+
+@test
+def dealer_tipping_and_messages():
+    g = Game(PLAYERS, seed=39)
+    auto_setup(g)
+    g.players["A"]["beans"] = 10
+    g.apply("A", {"type": "bj_tip", "amount": 4})
+    assert g.players["A"]["beans"] == 6
+    assert g.bj_tips == 4
+    assert g._bj("A")["mood"] == "thankful"
+    assert "thank" in g.bj_message.lower() or "kind" in g.bj_message.lower() or "bless" in g.bj_message.lower()
+    # can't tip beans you don't have
+    expect_error(lambda: g.apply("A", {"type": "bj_tip", "amount": 100}), "only have")
+    # a settled hand sets a dealer line + mood
+    g.players["A"]["beans"] = 50
+    g.apply("A", {"type": "bj_bet", "amount": 1})
+    safety = 0
+    while g._bj("A")["state"] == "player" and safety < 20:
+        safety += 1
+        g.apply("A", {"type": "bj_stand"})
+    assert g._bj("A")["mood"] in ("happy", "sad", "neutral", "excited")
+    assert len(g.bj_message) > 0
+
+
+@test
+def surrender_converts_seat_to_bot():
+    import os
+    import tempfile
+    from server import manager, leaderboard
+    leaderboard._PATH = os.path.join(tempfile.gettempdir(), "hexara_lb_surr.json")
+    if os.path.exists(leaderboard._PATH):
+        os.remove(leaderboard._PATH)
+    room = manager.Room("SUR")
+    room.players = [
+        {"id": "A", "name": "Ada", "color": "red", "token": "ta", "is_bot": False, "last_seen": 0},
+        {"id": "B", "name": "Bo", "color": "blue", "token": "tb", "is_bot": False, "last_seen": 0},
+    ]
+    room.host = "A"
+    room.game = Game([{"id": "A", "name": "Ada", "color": "red"},
+                      {"id": "B", "name": "Bo", "color": "blue"}], seed=1)
+    manager._surrender(room, "A")
+    a = next(p for p in room.players if p["id"] == "A")
+    assert a["is_bot"] is True              # seat handed to a bot
+    assert a["token"] != "ta"               # old session invalidated
+    assert room.host == "B"                 # host moved to the remaining human
+    assert "A" in room.game.players         # pieces/resources kept in the game
+    if os.path.exists(leaderboard._PATH):
+        os.remove(leaderboard._PATH)
+
+
 # --------------------------------------------------------------------- runner
 def main():
     passed = failed = 0

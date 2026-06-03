@@ -63,6 +63,25 @@
       this.cb = callbacks || {};
       this._wireJoin();
       this._wireLobbyStatic();
+      var leave = $("topbar-leave");
+      if (leave) leave.addEventListener("click", function () { UI.openSurrenderConfirm(); });
+    },
+
+    openSurrenderConfirm: function () {
+      var modal = el("div", "modal");
+      modal.appendChild(el("h2", null, "Leave the game?"));
+      modal.appendChild(el("p", "sub",
+        "A bot will take over your seat so everyone else can keep playing. You'll return to the menu."));
+      var actions = el("div", "modal-actions");
+      actions.appendChild(this._cancelBtn("Stay"));
+      var go = el("button", "btn btn-danger", "Leave game");
+      go.addEventListener("click", function () {
+        UI.closeModal();
+        if (UI.cb.onLeave) UI.cb.onLeave();
+      });
+      actions.appendChild(go);
+      modal.appendChild(actions);
+      this._openModal(modal, "surrender");
     },
 
     /* ===================== SCREEN SWITCHING ===================== */
@@ -132,7 +151,8 @@
       // Game-setup controls: any change pushes the whole config to the server.
       var setupIds = ["setup-preset", "setup-size", "setup-victoryPoints",
         "setup-discardThreshold", "setup-maxRoads", "setup-maxSettlements",
-        "setup-maxCities", "setup-bankPerResource"];
+        "setup-maxCities", "setup-bankPerResource",
+        "setup-beansPerResource", "setup-beansPerVictoryPoint"];
       setupIds.forEach(function (id) {
         var node = $(id);
         if (node) node.addEventListener("change", function () { self._onSetupChange(); });
@@ -232,7 +252,8 @@
     },
 
     /* ===================== LOBBY: game setup ===================== */
-    _RULE_KEYS: ["victoryPoints", "discardThreshold", "maxRoads", "maxSettlements", "maxCities", "bankPerResource"],
+    _RULE_KEYS: ["victoryPoints", "discardThreshold", "maxRoads", "maxSettlements",
+      "maxCities", "bankPerResource", "beansPerResource", "beansPerVictoryPoint"],
 
     _renderSetup: function (lobby, youId, isHost) {
       this._lobby = lobby;
@@ -744,6 +765,16 @@
       devWrap.appendChild(devBtn);
       bar.appendChild(devWrap);
 
+      // Side activities & options — available even when it's not your turn.
+      bar.appendChild(this._actBtn(null, "🎰 Casino", true, function () {
+        if (window.Casino) Casino.open();
+      }));
+      bar.appendChild(this._actBtn(null, "📊 Stats", true, function () {
+        UI.openStats(window.App ? App.state : state);
+      }));
+      bar.appendChild(this._autoRollToggle());
+      bar.appendChild(this._muteToggle());
+
       bar.appendChild(el("span", "spacer"));
 
       // End turn
@@ -1118,9 +1149,10 @@
 
       wrap.appendChild(el("h3", "trade-head", "You give"));
       var giveRow = el("div", "res-click-row");
+      var ratios = legal.portRatios || legal.bankTrades || {};
       RES.forEach(function (r) {
         giveRow.appendChild(self._resClickCard(r, give[r], num(have[r]), false, {
-          ratio: (legal.bankTrades && legal.bankTrades[r]) || null,
+          ratio: ratios[r] || 4,
           have: num(have[r]),
           onChange: function (v) { give[r] = v; refresh(); },
         }));
@@ -1161,20 +1193,31 @@
       wrap.appendChild(hint);
 
       function total(b) { return RES.reduce(function (a, r) { return a + num(b[r]); }, 0); }
-      // A valid one-shot bank trade: exactly one card wanted, and one selected
-      // give type you hold enough of at your best ratio.
+      function bundleStr(b) {
+        return RES.filter(function (r) { return b[r] > 0; })
+          .map(function (r) { return b[r] + " " + RES_LABEL[r]; }).join(", ");
+      }
+      // A valid bank trade: every give amount is a whole multiple of that
+      // resource's port rate, and the cards paid for equal the cards wanted —
+      // so 4 wheat at a 2:1 port buys 2 cards in one go.
       function bankTrade() {
-        var rType = null, rMulti = false;
-        RES.forEach(function (r) { if (receive[r] > 0) { rMulti = rMulti || rType !== null; rType = r; } });
-        if (rType === null || rMulti || total(receive) !== 1) return null;
+        if (total(give) === 0 || total(receive) === 0) return null;
+        for (var k = 0; k < RES.length; k++) {
+          if (give[RES[k]] > 0 && receive[RES[k]] > 0) return null; // no same-resource swap
+        }
+        var credits = 0;
         for (var i = 0; i < RES.length; i++) {
           var g = RES[i];
-          if (g === rType || give[g] <= 0) continue;
-          if (legal.bankTrades && legal.bankTrades[g]) {
-            return { give: g, receive: rType, ratio: legal.bankTrades[g] };
-          }
+          if (give[g] <= 0) continue;
+          var ratio = ratios[g] || 4;
+          if (give[g] % ratio !== 0) return null;
+          if (num(have[g]) < give[g]) return null;
+          credits += give[g] / ratio;
         }
-        return null;
+        if (credits !== total(receive)) return null;
+        var gb = {}, rb = {};
+        RES.forEach(function (r) { if (give[r] > 0) gb[r] = give[r]; if (receive[r] > 0) rb[r] = receive[r]; });
+        return { give: gb, receive: rb };
       }
       function playerOk() {
         if (total(give) === 0 && total(receive) === 0) return false;
@@ -1185,18 +1228,17 @@
         bankBtn.disabled = !bt;
         playBtn.disabled = !playerOk();
         if (bt) {
-          hint.textContent = "Bank: give " + bt.ratio + " " + RES_LABEL[bt.give] +
-            " for 1 " + RES_LABEL[bt.receive] + ".";
-        } else if (total(receive) === 1 && total(give) > 0) {
-          hint.textContent = "You don't have enough of that resource for a bank trade.";
+          hint.textContent = "Bank: give " + bundleStr(bt.give) + " for " + bundleStr(bt.receive) + ".";
+        } else if (total(give) > 0 || total(receive) > 0) {
+          hint.textContent = "Bank: give resources in multiples of your rate; cards out must equal cards paid for.";
         } else {
-          hint.textContent = "Bank: pick 1 card to receive and a resource you have enough of to give.";
+          hint.textContent = "Bank: e.g. give 4 wheat at a 2:1 port for 2 cards. Click cards to build it.";
         }
       }
 
       bankBtn.addEventListener("click", function () {
         var bt = bankTrade();
-        if (!bt) { UI.toast("Pick one card to receive and one you can afford to give."); return; }
+        if (!bt) { UI.toast("Give resources in multiples of your rate, matching the cards you want."); return; }
         UI.closeModal();
         if (UI.cb.onBankTrade) UI.cb.onBankTrade(bt.give, bt.receive);
       });
@@ -1320,6 +1362,33 @@
       return b;
     },
 
+    /* ---- all-time wins leaderboard (join screen + win modal) ---- */
+    renderLeaderboard: function (leaders, into) {
+      var box = into || $("join-leaderboard");
+      if (!box) return;
+      clear(box);
+      box.appendChild(el("h3", null, "🏆 All-time wins"));
+      if (!leaders || !leaders.length) {
+        box.appendChild(el("p", "lb-empty", "No games won yet — be the first!"));
+        return;
+      }
+      var ol = el("ol", "lb-list");
+      leaders.slice(0, 10).forEach(function (e) {
+        var li = el("li");
+        li.appendChild(el("span", "lb-name", e.name));
+        li.appendChild(el("span", "lb-wins", e.wins + (e.wins === 1 ? " win" : " wins")));
+        ol.appendChild(li);
+      });
+      box.appendChild(ol);
+    },
+    loadLeaderboard: function (into) {
+      var self = this;
+      fetch("/api/leaderboard")
+        .then(function (r) { return r.json(); })
+        .then(function (d) { self.renderLeaderboard((d && d.leaders) || [], into); })
+        .catch(function () {});
+    },
+
     /* ---- win modal ---- */
     _renderWin: function (state) {
       if (this._openModalKind === "win") return;
@@ -1342,7 +1411,15 @@
         ol.appendChild(li);
       });
       modal.appendChild(ol);
+
+      var lb = el("div", "leaderboard");
+      modal.appendChild(lb);
+      this.loadLeaderboard(lb);  // fresh all-time wins (this game already counted)
+
       var actions = el("div", "modal-actions");
+      var stats = el("button", "btn", "📊 View Stats");
+      stats.addEventListener("click", function () { UI.openStats(state); });
+      actions.appendChild(stats);
       var leave = el("button", "btn btn-primary", "Back to Menu");
       leave.addEventListener("click", function () {
         if (UI.cb.onLeave) UI.cb.onLeave();
@@ -1350,6 +1427,79 @@
       actions.appendChild(leave);
       modal.appendChild(actions);
       this._openModal(modal, "win");
+    },
+
+    /* ---- stats modal: dice histogram + (at end) resource accumulation ---- */
+    openStats: function (state) {
+      state = state || (window.App && App.state) || {};
+      var WAYS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
+      var rs = state.rollStats || {};
+      var totalRolls = 0;
+      for (var t = 2; t <= 12; t++) totalRolls += num(rs[t]);
+
+      var modal = el("div", "modal modal-wide stats-modal");
+      modal.appendChild(el("h2", null, "Game Stats"));
+      modal.appendChild(el("h3", null, "Dice rolls — " + totalRolls + " total"));
+
+      var maxCount = 1;
+      for (var t2 = 2; t2 <= 12; t2++) maxCount = Math.max(maxCount, num(rs[t2]));
+      var chart = el("div", "roll-chart");
+      for (var n = 2; n <= 12; n++) {
+        var count = num(rs[n]);
+        var theo = (WAYS[n] / 36) * 100;
+        var obs = totalRolls ? (count / totalRolls) * 100 : 0;
+        var row = el("div", "roll-row");
+        var lab = el("span", "roll-num", String(n));
+        if (n === 6 || n === 8) lab.classList.add("red");
+        if (n === 7) lab.classList.add("seven");
+        row.appendChild(lab);
+        var bw = el("div", "roll-bar-wrap");
+        var bar = el("div", "roll-bar" + (n === 7 ? " seven" : (n === 6 || n === 8 ? " hot" : "")));
+        bar.style.width = (count / maxCount * 100).toFixed(1) + "%";
+        bw.appendChild(bar);
+        row.appendChild(bw);
+        row.appendChild(el("span", "roll-meta",
+          count + "× · " + obs.toFixed(0) + "% obs · " + theo.toFixed(1) + "% expected"));
+        chart.appendChild(row);
+      }
+      modal.appendChild(chart);
+
+      // Resource accumulation leaders (revealed only at game end).
+      if (state.phase === "ended") {
+        modal.appendChild(el("h3", null, "Resources accumulated (whole game)"));
+        RES.forEach(function (r) {
+          var vals = (state.players || []).map(function (p) {
+            return { p: p, n: (p.gained && p.gained[r]) || 0 };
+          });
+          var max = 1, lead = null;
+          vals.forEach(function (v) { max = Math.max(max, v.n); if (!lead || v.n > lead.n) lead = v; });
+          var sec = el("div", "accum-res");
+          sec.appendChild(el("div", "accum-head", RES_LABEL[r]));
+          vals.forEach(function (v) {
+            var rr = el("div", "accum-row");
+            var sw = el("span", "swatch");
+            sw.style.background = v.p.color || "#888";
+            rr.appendChild(sw);
+            rr.appendChild(el("span", "accum-name", v.p.name));
+            var bwp = el("div", "accum-bar-wrap");
+            var b = el("div", "accum-bar");
+            b.style.width = (v.n / max * 100).toFixed(1) + "%";
+            b.style.background = RES_COLOR[r];
+            bwp.appendChild(b);
+            rr.appendChild(bwp);
+            rr.appendChild(el("span", "accum-val", v.n + (lead && v.p === lead.p && v.n > 0 ? " 👑" : "")));
+            sec.appendChild(rr);
+          });
+          modal.appendChild(sec);
+        });
+      } else {
+        modal.appendChild(el("p", "sub", "Who hoarded the most of each resource is revealed when the game ends."));
+      }
+
+      var actions = el("div", "modal-actions");
+      actions.appendChild(this._cancelBtn("Close"));
+      modal.appendChild(actions);
+      this._openModal(modal, "stats");
     },
 
     /* ===================== TOASTS ===================== */
@@ -1414,6 +1564,43 @@
         return false;
       });
       return me;
+    },
+
+    /* ---- action-bar options ---- */
+    _autoRollToggle: function () {
+      var wrap = el("label", "opt-toggle");
+      wrap.title = "Automatically roll the dice at the start of your turn";
+      var cb = el("input");
+      cb.type = "checkbox";
+      cb.checked = !!(window.App && App.autoRoll);
+      cb.addEventListener("change", function () {
+        if (window.App) App.setAutoRoll(this.checked);
+      });
+      wrap.appendChild(cb);
+      wrap.appendChild(document.createTextNode(" Auto-roll"));
+      return wrap;
+    },
+    _muteToggle: function () {
+      var muted = !!(window.Sound && Sound.isMuted());
+      var b = el("button", "btn btn-act", muted ? "🔇" : "🔊");
+      b.title = muted ? "Sound off — click to enable" : "Sound on — click to mute";
+      b.addEventListener("click", function () {
+        var m = window.Sound ? Sound.toggle() : true;
+        b.textContent = m ? "🔇" : "🔊";
+        b.title = m ? "Sound off — click to enable" : "Sound on — click to mute";
+      });
+      return b;
+    },
+
+    /* ---- your-turn red border glow ---- */
+    flashTurn: function () {
+      var ov = $("turn-flash");
+      if (!ov) return;
+      ov.classList.remove("on");
+      void ov.offsetWidth; // restart the animation
+      ov.classList.add("on");
+      clearTimeout(this._turnFlashT);
+      this._turnFlashT = setTimeout(function () { ov.classList.remove("on"); }, 1300);
     },
   };
 

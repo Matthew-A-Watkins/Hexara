@@ -76,6 +76,30 @@ Maps and rules are validated server-side, so an illegal board or value is
 refused with a clear message before the game can start. The full format is in
 **`docs/PROTOCOL.md`** (`MapSpec` and `Rules`).
 
+## Table extras
+- **Sound effects** — procedural cues (dice, building, the robber, your turn,
+  victory, blackjack chips/cards) synthesized in the browser via Web Audio, so
+  there are no audio files to ship. Toggle with the 🔊 button.
+- **Auto-roll** — a checkbox that rolls the dice for you at the start of each of
+  your turns. A red border **glows** when your turn begins.
+- **Stats** — a 📊 panel with a live dice histogram (observed vs. theoretical
+  odds per total) and, once the game ends, who accumulated the most of each
+  resource.
+- **Casino** — a 🎰 shared table you can play any time, even on others' turns,
+  hosted by an animated **8-bit dealer** who deals the cards, reacts to your
+  run (congratulates wins, sympathizes with losses) and beams when you **tip**.
+  Everyone shares one **6-deck shoe** with ~5-deck penetration, so card counting
+  is real and communal — every dealt card is shown, and you can see the whole
+  table's hands. 1-bean minimum, naturals pay 3:2, hit/stand/double/split.
+  The **cashier** swaps **beans** for resource cards (20 each), development cards
+  (10 each = ½ a resource) or **victory points** (which count toward winning) —
+  you can never go negative. End your turn or flip on **Auto-sell** without
+  leaving the table. All wagers and conversions are server-authoritative.
+- **Surrender** — leave a game in progress and a bot takes over your seat, so the
+  rest of the table plays on.
+- **Leaderboard** — all-time wins by player name, persisted on the server and
+  shown on the join screen and the victory screen.
+
 ## Rules implemented (base game, 1:1)
 - 19-hex island, 9 harbors (4× generic 3:1, one 2:1 per resource), random board
   with the "no adjacent red 6/8" placement rule.

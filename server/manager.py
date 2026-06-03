@@ -14,6 +14,7 @@ import time
 
 from engine import bot, views, constants as C, maps
 from engine.game import Game, GameError, validate_config, normalize_rules, rule_bounds
+from server import leaderboard
 
 PALETTE = [{"name": name, "hex": hexv} for name, hexv in C.PLAYER_COLORS]
 _BOT_NAMES = ["Robo-Rurik", "Auto-Astrid", "Bot Bjorn", "C.P.-Una",
@@ -53,6 +54,7 @@ class Room:
         self.bot_thread = None
         self.closed = False
         self.touched = time.monotonic()
+        self.win_recorded = False   # leaderboard credited once per game
 
 
 # ------------------------------------------------------------------- rooms
@@ -238,6 +240,11 @@ def handle_lobby(room, pid, action):
 # ----------------------------------------------------------------- game ops
 def handle_action(room, pid, action):
     t = action.get("type", "")
+    # Leaving (or surrendering) a game in progress hands the seat to a bot so
+    # play continues for everyone else.
+    if t in ("lobby_leave", "surrender") and room.game is not None:
+        _surrender(room, pid)
+        return
     if t.startswith("lobby_"):
         handle_lobby(room, pid, action)
         return
@@ -246,8 +253,42 @@ def handle_action(room, pid, action):
         if room.game is None:
             raise GameError("The game hasn't started yet.")
         room.game.apply(pid, action)
+        _maybe_record_win(room)
         broadcast(room)
     room.bot_event.set()
+
+
+def _maybe_record_win(room):
+    """Credit the winner's all-time wins exactly once when a game ends."""
+    g = room.game
+    if g is None or room.win_recorded or g.winner is None:
+        return
+    room.win_recorded = True
+    winner = _find(room, g.winner)
+    if winner:
+        leaderboard.record_win(winner["name"])
+
+
+def _surrender(room, pid):
+    """A human leaves a game in progress: their seat becomes a bot (keeping all
+    pieces, resources and turn position) and their session is invalidated."""
+    with room.lock:
+        room.touched = time.monotonic()
+        p = _find(room, pid)
+        if p is None or p["is_bot"]:
+            return
+        base = p["name"]
+        p["is_bot"] = True
+        p["token"] = secrets.token_hex(16)  # kill their session so they bounce to join
+        p["name"] = (base + " (bot)")[:20]
+        if room.game and pid in room.game.players:
+            room.game.players[pid]["name"] = p["name"]
+            room.game._log("%s left the game — a bot took over their seat." % base)
+        if room.host == pid:  # hand the (now-cosmetic) host flag to a remaining human
+            human = next((q for q in room.players if not q["is_bot"]), None)
+            room.host = human["id"] if human else room.host
+        broadcast(room)
+    room.bot_event.set()  # let the bot driver pick up the seat immediately
 
 
 # ---------------------------------------------------------------- bot driver
@@ -293,6 +334,7 @@ def _bot_loop(room):
                     g.apply(actor, action)
                 except GameError:
                     break  # defensive: never spin on a rejected bot move
+                _maybe_record_win(room)
             broadcast(room)
 
 

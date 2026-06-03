@@ -165,6 +165,7 @@ img{ -webkit-user-drag:none; user-select:none; }
   display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;
   box-shadow:var(--shadow-sm);
 }
+.topbar-leave{margin-left:6px;flex:0 0 auto;}
 .topbar-stats{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .stat-group{display:flex;gap:6px;background:rgba(0,0,0,.2);padding:4px 8px;border-radius:10px;}
 .bank-res{display:flex;align-items:center;gap:3px;font-size:13px;font-weight:700;}
@@ -368,6 +369,14 @@ img{ -webkit-user-drag:none; user-select:none; }
 .standings .fvp{margin-left:auto;font-weight:800;}
 .win-crown{font-size:40px;text-align:center;}
 
+/* ============================ TURN GLOW ============================ */
+.turn-flash-overlay{
+  position:fixed;inset:0;pointer-events:none;z-index:60;opacity:0;
+  box-shadow:inset 0 0 0 5px rgba(192,57,43,.95), inset 0 0 70px 14px rgba(192,57,43,.55);
+}
+.turn-flash-overlay.on{animation:turnflash 1.2s ease-out;}
+@keyframes turnflash{0%{opacity:0;}14%{opacity:1;}100%{opacity:0;}}
+
 /* ============================ TOASTS ============================ */
 .toast-area{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:8px;z-index:80;align-items:center;}
 .toast{
@@ -387,4 +396,148 @@ img{ -webkit-user-drag:none; user-select:none; }
   .players-panel,.side-panel{width:100%;flex-basis:auto;max-height:200px;border-width:3px 0 0;}
   .players-panel{order:3;}.side-panel{order:2;}.board-area{order:1;}
 }
+/* ============================ ACTION-BAR OPTIONS ============================ */
+.opt-toggle{display:flex;align-items:center;gap:5px;font-size:13px;font-weight:600;
+  background:rgba(0,0,0,.18);padding:7px 10px;border-radius:10px;color:#f7eed8;cursor:pointer;border:2px solid var(--wood-dk);}
+.opt-toggle input{width:16px;height:16px;cursor:pointer;}
+
+/* ============================ LEADERBOARD ============================ */
+.leaderboard{margin-top:18px;text-align:left;}
+.leaderboard h3{font-size:14px;color:var(--gold);border-bottom:1px solid rgba(255,255,255,.2);padding-bottom:4px;}
+.modal .leaderboard h3{color:var(--wood-dk);}
+.lb-list{list-style:none;margin:8px 0 0;padding:0;counter-reset:lb;}
+.lb-list li{display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:8px;background:rgba(0,0,0,.16);margin-bottom:5px;}
+.modal .lb-list li{background:rgba(0,0,0,.06);}
+.lb-list li::before{counter-increment:lb;content:counter(lb);font-weight:800;width:20px;color:var(--gold);}
+.modal .lb-list li::before{color:var(--wood-dk);}
+.lb-name{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lb-wins{font-weight:800;}
+.lb-empty{font-size:13px;color:#cdbb95;font-style:italic;}
+.modal .lb-empty{color:var(--ink-soft);}
+
+/* ============================ STATS MODAL ============================ */
+.roll-chart{display:flex;flex-direction:column;gap:4px;margin:8px 0 4px;}
+.roll-row{display:flex;align-items:center;gap:8px;font-size:12.5px;}
+.roll-num{width:22px;text-align:center;font-weight:800;}
+.roll-num.red{color:var(--danger);}
+.roll-num.seven{color:#7a4a23;}
+.roll-bar-wrap{flex:1;background:rgba(0,0,0,.08);border-radius:6px;height:16px;overflow:hidden;}
+.roll-bar{height:100%;background:var(--ok);border-radius:6px;min-width:2px;transition:width .3s;}
+.roll-bar.hot{background:var(--danger);}
+.roll-bar.seven{background:#7a4a23;}
+.roll-meta{width:190px;text-align:right;color:var(--ink-soft);}
+.accum-res{margin:10px 0;}
+.accum-head{font-weight:800;color:var(--wood-dk);margin-bottom:4px;}
+.accum-row{display:flex;align-items:center;gap:8px;font-size:12.5px;margin:3px 0;}
+.accum-row .swatch{width:14px;height:14px;}
+.accum-name{width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.accum-bar-wrap{flex:1;background:rgba(0,0,0,.08);border-radius:6px;height:14px;overflow:hidden;}
+.accum-bar{height:100%;border-radius:6px;min-width:2px;}
+.accum-val{width:48px;text-align:right;font-weight:700;}
+
+/* ============================ CASINO ============================ */
+.casino-modal{background:linear-gradient(180deg,#2a1c10,#1a1208);color:#f3e6c8;border-color:#0c0805;}
+.casino-modal h2{color:var(--gold);text-shadow:2px 2px 0 #000;}
+.casino-balance{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px;}
+.bean-pill{background:linear-gradient(180deg,#e6c75a,#caa64a);color:#3a2a18;font-weight:800;padding:5px 12px;border-radius:20px;box-shadow:var(--shadow-sm);}
+.vp-pill{background:linear-gradient(180deg,#f0cf6a,var(--gold));color:#3a2a18;font-weight:800;padding:5px 12px;border-radius:20px;}
+.tip-pill{background:#7a4a23;color:#ffe9b0;font-weight:800;padding:5px 12px;border-radius:20px;}
+.rate-note{font-size:12px;color:#cdbb95;margin-left:auto;}
+
+/* felt table */
+.bj-felt{
+  background:radial-gradient(ellipse at 50% 0%,#1c7a4a,#0d3f27 80%);
+  border:4px solid #5c3417;border-radius:18px;padding:14px;margin-bottom:12px;
+  box-shadow:inset 0 0 40px rgba(0,0,0,.5);position:relative;
+}
+.dealer-wrap{display:flex;align-items:flex-start;gap:12px;justify-content:center;margin-bottom:6px;}
+.dealer-canvas{
+  width:108px;height:108px;image-rendering:pixelated;image-rendering:crisp-edges;
+  background:radial-gradient(circle at 50% 40%,#2a5c8f,#173a5c);border-radius:50%;
+  border:3px solid #0c0805;box-shadow:0 4px 10px rgba(0,0,0,.5);flex:0 0 auto;
+}
+.dealer-bubble{
+  position:relative;background:#fffdf3;color:#2a1c10;border-radius:12px;padding:10px 14px;
+  font-weight:600;font-size:13.5px;max-width:330px;align-self:center;box-shadow:var(--shadow);
+  animation:bubblepop .25s ease;
+}
+.dealer-bubble::before{content:"";position:absolute;left:-9px;top:50%;transform:translateY(-50%);
+  border:7px solid transparent;border-right-color:#fffdf3;}
+@keyframes bubblepop{from{transform:scale(.9);opacity:0;}to{transform:scale(1);opacity:1;}}
+.dealer-hand{display:flex;flex-direction:column;align-items:center;gap:4px;margin:6px 0;}
+.bj-empty{color:#bfe6cf;font-weight:700;}
+
+.bj-seats{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:6px;}
+.bj-empty-seats{color:#cfeede;font-style:italic;padding:8px;}
+.bj-seat{background:rgba(0,0,0,.28);border:2px solid rgba(255,255,255,.12);border-radius:12px;padding:8px;min-width:150px;}
+.bj-seat.you{border-color:var(--gold);box-shadow:0 0 10px rgba(227,178,60,.4);}
+.bj-seat.active{outline:2px solid #fff7e0;}
+.seat-head{display:flex;align-items:center;gap:6px;margin-bottom:5px;font-size:12.5px;}
+.seat-head .swatch{width:13px;height:13px;}
+.seat-name{font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.seat-bet{font-weight:800;color:#e6c75a;}
+.seat-hand{display:flex;align-items:center;gap:6px;margin:3px 0;}
+.seat-val{font-size:12px;font-weight:700;color:#e9dcc0;}
+.seat-val.win{color:#7CFC00;}
+.seat-val.lose{color:#ff8a7a;}
+.seat-net{font-weight:800;margin-top:3px;}
+.seat-net.win{color:#7CFC00;}
+.seat-net.lose{color:#ff8a7a;}
+
+/* cards (shared by dealer + seats) */
+.bj-cards{display:flex;gap:5px;flex-wrap:wrap;}
+.bjcard{width:40px;height:56px;border-radius:6px;background:#fffdf6;border:1.5px solid #111;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;color:#222;box-shadow:0 2px 5px rgba(0,0,0,.45);}
+.bjcard.red{color:var(--danger);}
+.bjcard.back{background:repeating-linear-gradient(45deg,#7a2a2a,#7a2a2a 5px,#5c1717 5px,#5c1717 10px);border-color:#3a0a0a;}
+.bjcard-rank{font-weight:800;font-size:15px;line-height:1;}
+.bjcard-suit{font-size:17px;line-height:1;}
+.bjcard.deal-in{animation:dealcard .32s cubic-bezier(.2,.8,.3,1.2) both;}
+@keyframes dealcard{from{transform:translate(-60px,-90px) rotate(-25deg) scale(.6);opacity:0;}to{transform:none;opacity:1;}}
+
+/* aesthetic casino buttons */
+.casino-btn{border:2px solid #0c0805;border-radius:12px;font-weight:800;color:#fff;padding:10px 16px;
+  background:linear-gradient(180deg,#3a8f5c,#1e6b3f);box-shadow:0 3px 0 #0c0805,0 4px 10px rgba(0,0,0,.4);
+  text-shadow:1px 1px 0 rgba(0,0,0,.4);transition:transform .07s ease,filter .12s ease;}
+.casino-btn:hover:not(:disabled){filter:brightness(1.12);transform:translateY(-1px);}
+.casino-btn:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 #0c0805;}
+.casino-btn:disabled{opacity:.4;filter:grayscale(.5);}
+.bj-deal{background:linear-gradient(180deg,#e6c75a,#c79a2e);color:#2a1c10;animation:dealglow 1.6s ease-in-out infinite;}
+@keyframes dealglow{0%,100%{box-shadow:0 3px 0 #0c0805,0 0 0 rgba(230,199,90,0);}50%{box-shadow:0 3px 0 #0c0805,0 0 16px rgba(230,199,90,.7);}}
+.bj-hit{background:linear-gradient(180deg,#46a06a,#1e7e46);}
+.bj-stand{background:linear-gradient(180deg,#d75a4c,#a52f22);}
+.bj-double{background:linear-gradient(180deg,#5a8fd7,#2c5f9e);}
+.bj-split{background:linear-gradient(180deg,#a06ad7,#7038a0);}
+.bj-tip{background:linear-gradient(180deg,#e6a05a,#c77a2e);color:#2a1c10;}
+.end-turn{background:linear-gradient(180deg,#7a8a99,#4a5663);}
+
+.bj-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:6px;justify-content:center;}
+.bj-extra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px;justify-content:center;}
+.bet-wrap,.tip-wrap{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.25);padding:5px 10px;border-radius:12px;}
+.bet-label{font-weight:800;color:#e6c75a;}
+.bj-warn{color:#ffd2cc;font-weight:700;font-size:12.5px;}
+.casino-toggle{background:rgba(0,0,0,.3);color:#f3e6c8;border-color:#0c0805;}
+.mini-stepper{display:inline-flex;align-items:center;gap:6px;}
+.mini-stepper .pcount{min-width:22px;text-align:center;font-weight:800;color:#fff;}
+.mini-stepper .btn{padding:3px 9px;}
+
+.bj-label{font-size:12.5px;font-weight:700;color:#cfeede;margin-bottom:3px;text-align:center;}
+.bj-seen{background:rgba(0,0,0,.3);border-radius:10px;padding:8px;margin:10px 0;}
+.bj-seen-row{display:flex;gap:3px;flex-wrap:wrap;max-height:96px;overflow:auto;}
+.seen-chip{font-size:11px;font-weight:700;background:#fffdf6;border:1px solid #5c3417;border-radius:5px;padding:1px 4px;color:#222;}
+.seen-chip.red{color:var(--danger);}
+
+/* cashier */
+.cashier-head{display:block;width:100%;text-align:left;margin-top:12px;background:rgba(0,0,0,.3);color:#f3e6c8;
+  border:2px solid #0c0805;border-radius:10px;padding:9px 12px;font-weight:700;cursor:pointer;}
+.cashier{background:rgba(0,0,0,.22);border-radius:0 0 12px 12px;padding:12px;margin-top:-2px;}
+.cashier h4{margin:8px 0 6px;color:#e6c75a;font-size:13px;}
+.cashier .res-click{background:rgba(255,255,255,.06);}
+.cashier .rc-have{color:#cdbb95;}
+.vp-exchange{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+.dev-cash-row{display:flex;gap:10px;flex-wrap:wrap;}
+.dev-cash{background:rgba(0,0,0,.25);border-radius:10px;padding:8px;text-align:center;}
+.dev-cash-name{font-size:12px;font-weight:700;margin-bottom:5px;color:#e9dcc0;}
+.trade-btns .casino-btn{flex:1 1 150px;}
+
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);}

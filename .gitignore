@@ -64,6 +64,10 @@ $RECYCLE.BIN/
 .directory
 .Trash-*
 
+# --- Runtime data ---
+# All-time wins leaderboard, written at runtime by the server.
+/data/
+
 # --- Logs / scratch ---
 *.log
 logs/

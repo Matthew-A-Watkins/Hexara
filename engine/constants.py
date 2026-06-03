@@ -110,6 +110,15 @@ LARGEST_ARMY_MINIMUM = 3  # need at least 3 knights played to claim the card
 # --- Robber -----------------------------------------------------------------
 ROBBER_DISCARD_LIMIT = 7  # players with MORE than this discard half on a 7
 
+# --- Casino / "beans" gambling currency ------------------------------------
+BEANS_PER_RESOURCE = 20    # 20 beans <-> 1 resource card (both directions)
+BEANS_PER_VP = 200         # default beans <-> 1 victory point (host-configurable)
+BLACKJACK_DECKS = 6        # a 6-deck shoe
+BLACKJACK_PENETRATION = 5  # deal ~5 of 6 decks before reshuffle (cut ~1 deck)
+BLACKJACK_MIN_BET = 1      # minimum 1-bean hands
+BLACKJACK_PAYOUT_NUM = 3   # natural blackjack pays 3:2
+BLACKJACK_PAYOUT_DEN = 2
+
 # --- Players ----------------------------------------------------------------
 # Classic player colours; first four match the base game, last two match the
 # 5-6 player extension.
