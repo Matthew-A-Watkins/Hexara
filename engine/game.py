@@ -34,6 +34,7 @@ _RULE_SPECS = {
     "bankPerResource": (C.BANK_PER_RESOURCE, 1, 400),
     "beansPerResource": (C.BEANS_PER_RESOURCE, 1, 1000),
     "beansPerVictoryPoint": (C.BEANS_PER_VP, 1, 100000),
+    "devDeckMultiplier": (1, 1, 20),   # 1 = the standard 25-card deck
 }
 
 
@@ -159,6 +160,7 @@ class Game:
         self.bank_per_resource = r["bankPerResource"]
         self.beans_per_resource = r["beansPerResource"]
         self.beans_per_vp = r["beansPerVictoryPoint"]
+        self.dev_deck_multiplier = r["devDeckMultiplier"]
 
     def rules_view(self):
         """The active rule numbers, for serialization to clients."""
@@ -171,6 +173,7 @@ class Game:
             "bankPerResource": self.bank_per_resource,
             "beansPerResource": self.beans_per_resource,
             "beansPerVictoryPoint": self.beans_per_vp,
+            "devDeckMultiplier": self.dev_deck_multiplier,
         }
 
     # ------------------------------------------------------------------ setup
@@ -211,7 +214,7 @@ class Game:
     def _make_deck(self):
         deck = []
         for card, n in C.DEV_CARD_COUNTS.items():
-            deck += [card] * n
+            deck += [card] * (n * self.dev_deck_multiplier)
         self.rng.shuffle(deck)
         self.deck = deck
 
@@ -366,6 +369,7 @@ class Game:
             "bj_stand": self._h_bj_stand,
             "bj_double": self._h_bj_double,
             "bj_split": self._h_bj_split,
+            "bj_surrender": self._h_bj_surrender,
             "bj_tip": self._h_bj_tip,
         }.get(action.get("type"))
         self._require(handler is not None, "Unknown action: %r" % action.get("type"))
@@ -974,6 +978,15 @@ class Game:
             new_hand["done"] = True
             self._bj_advance(pid)
 
+    def _h_bj_surrender(self, pid, action):
+        bj = self._require_bj_turn(pid)
+        hand = self._bj_active(bj)
+        self._require(len(hand["cards"]) == 2 and len(bj["hands"]) == 1,
+                      "You can only surrender your opening two cards.")
+        hand["done"] = True
+        hand["result"] = "surrender"   # half the bet comes back at settlement
+        self._bj_advance(pid)
+
     def _bj_advance(self, pid):
         bj = self._bj(pid)
         while bj["active"] < len(bj["hands"]) and bj["hands"][bj["active"]]["done"]:
@@ -986,8 +999,9 @@ class Game:
     def _bj_finish(self, pid):
         bj = self._bj(pid)
         bj["dealerHidden"] = False
-        # Dealer draws to 17 (stands on all 17) only if some hand can still win.
-        if any(not casino.is_bust(h["cards"]) for h in bj["hands"]):
+        # Dealer draws to 17 (stands on all 17) only if some hand can still win
+        # (i.e. is neither busted nor surrendered).
+        if any(h["result"] != "surrender" and not casino.is_bust(h["cards"]) for h in bj["hands"]):
             while casino.best(bj["dealer"]) < 17:
                 bj["dealer"].append(self._bj_draw())
         dealer_total = casino.best(bj["dealer"])
@@ -1021,6 +1035,11 @@ class Game:
         net, streak = bj["net"], bj["streak"]
         has_bj = any(h["result"] == "blackjack" for h in bj["hands"])
         busted = all(h["result"] == "bust" for h in bj["hands"])
+        surrendered = any(h["result"] == "surrender" for h in bj["hands"])
+        if surrendered and len(bj["hands"]) == 1:
+            return self.rng.choice([
+                "Surrendered — sometimes folding is the smart play, %s. Half back to you." % name,
+                "A wise retreat, %s. Live to bet another hand." % name])
         if has_bj:
             return self.rng.choice([
                 "Blackjack!! Pays three-to-two — beautifully played, %s." % name,
@@ -1067,6 +1086,8 @@ class Game:
     def _bj_settle(self, hand, dealer_total, dealer_bj):
         """Return the beans paid back for this hand (0 = lost the wager)."""
         cards, bet = hand["cards"], hand["bet"]
+        if hand["result"] == "surrender":
+            return bet // 2  # forfeited the hand; half the wager comes back
         if casino.is_bust(cards):
             hand["result"] = "bust"
             return 0

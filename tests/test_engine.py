@@ -995,6 +995,39 @@ def surrender_converts_seat_to_bot():
         os.remove(leaderboard._PATH)
 
 
+# ------------------------------------------------------ wave 4: surrender/deck
+@test
+def blackjack_surrender():
+    g = Game(PLAYERS, seed=40)
+    auto_setup(g)
+    g.players["A"]["beans"] = 100
+    # player 9,7 = 16 (no natural); dealer 10,6. pop draws dealer1,dealer2,hand1,hand2.
+    g.bj_shoe = ["2C"] * 60 + ["7S", "9H", "6D", "10C"]
+    g.bj_seen = []
+    g.apply("A", {"type": "bj_bet", "amount": 4})
+    bj = g._bj("A")
+    assert bj["state"] == "player" and len(bj["hands"][0]["cards"]) == 2
+    g.apply("A", {"type": "bj_surrender"})
+    assert bj["hands"][0]["result"] == "surrender"
+    assert g.players["A"]["beans"] == 100 - 4 + 2  # half the 4-bean wager returned
+    # can't surrender after taking a card
+    g.apply("A", {"type": "bj_bet", "amount": 2})
+    g.apply("A", {"type": "bj_hit"})
+    if g._bj("A")["state"] == "player":
+        expect_error(lambda: g.apply("A", {"type": "bj_surrender"}), "opening two cards")
+
+
+@test
+def dev_deck_multiplier():
+    from collections import Counter
+    g1 = Game(PLAYERS, seed=41)
+    assert len(g1.deck) == 25                      # default = standard deck
+    g4 = Game(PLAYERS, config={"rules": {"devDeckMultiplier": 4}}, seed=41)
+    assert len(g4.deck) == 100
+    assert Counter(g4.deck)[C.DEV_KNIGHT] == 14 * 4  # proportions preserved
+    expect_error(lambda: Game(PLAYERS, config={"rules": {"devDeckMultiplier": 99}}), "between")
+
+
 # --------------------------------------------------------------------- runner
 def main():
     passed = failed = 0

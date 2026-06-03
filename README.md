@@ -70,7 +70,8 @@ table; non-hosts see a read-only summary.
   island shape) stays in sync with a live **JSON** definition you can edit or
   paste directly. Ports are auto-placed around the coast (or turned off).
 - **Rule tuning:** victory points to win, the discard threshold, max
-  roads/settlements/cities, and the bank size per resource.
+  roads/settlements/cities, the bank size, the casino bean rates, and the
+  **development-deck size** (×25 cards).
 
 Maps and rules are validated server-side, so an illegal board or value is
 refused with a clear message before the game can start. The full format is in
@@ -90,11 +91,13 @@ refused with a clear message before the game can start. The full format is in
   run (congratulates wins, sympathizes with losses) and beams when you **tip**.
   Everyone shares one **6-deck shoe** with ~5-deck penetration, so card counting
   is real and communal — every dealt card is shown, and you can see the whole
-  table's hands. 1-bean minimum, naturals pay 3:2, hit/stand/double/split.
-  The **cashier** swaps **beans** for resource cards (20 each), development cards
-  (10 each = ½ a resource) or **victory points** (which count toward winning) —
-  you can never go negative. End your turn or flip on **Auto-sell** without
-  leaving the table. All wagers and conversions are server-authoritative.
+  table's hands. 1-bean minimum (type any bet or hit **Max**), naturals pay 3:2,
+  hit/stand/double/split/**surrender**. The **cashier** spends **beans** on
+  resource cards (20 each) or **victory points** (which count toward winning),
+  and cashes **development cards** in for beans (10 each = ½ a resource) — you can
+  never go negative. End your turn or flip on **Auto-buy dev** (turns your
+  resources into development cards) without leaving the table. All wagers and
+  conversions are server-authoritative.
 - **Surrender** — leave a game in progress and a bot takes over your seat, so the
   rest of the table plays on.
 - **Leaderboard** — all-time wins by player name, persisted on the server and

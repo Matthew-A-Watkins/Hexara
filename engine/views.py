@@ -133,6 +133,7 @@ def _casino_view(g, pid):
         "canStand": in_play,
         "canDouble": bool(cur and len(cur["cards"]) == 2 and beans >= cur["bet"]),
         "canSplit": bool(cur and casino.can_split(cur["cards"]) and len(bj["hands"]) < 4 and beans >= cur["bet"]),
+        "canSurrender": bool(cur and len(cur["cards"]) == 2 and len(bj["hands"]) == 1),
     }
     return out
 

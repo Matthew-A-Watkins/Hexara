@@ -73,8 +73,9 @@ You do **not** read game state from the action response — wait for the next po
   "maxSettlements": 5,
   "maxCities": 4,
   "bankPerResource": 19,    // cards of each resource in the bank (1–400)
-  "beansPerResource": 20,   // casino: beans <-> 1 resource card (1–1000)
-  "beansPerVictoryPoint": 200  // casino: beans <-> 1 victory point (1–100000)
+  "beansPerResource": 20,   // casino: beans -> 1 resource card / dev card = half this (1–1000)
+  "beansPerVictoryPoint": 200, // casino: beans <-> 1 victory point (1–100000)
+  "devDeckMultiplier": 1    // scales the development deck (1 = the standard 25 cards; 1–20)
 }
 ```
 
@@ -174,7 +175,7 @@ play your own hand heads-up against the dealer.
     "hands": [ { "cards": ["KS","7S"], "bet": 5, "value": 17, "soft": false,
                  "bust": false, "blackjack": false, "result": null, "active": true } ],
     "active": 0, "net": 0,
-    "canHit": true, "canStand": true, "canDouble": true, "canSplit": false
+    "canHit": true, "canStand": true, "canDouble": true, "canSplit": false, "canSurrender": true
   }
 }
 ```
@@ -261,13 +262,13 @@ Main turn:
 - `{ "type": "end_turn" }`
 
 Casino / beans (allowed off-turn, once the game is underway):
-- `{ "type": "convert_to_beans", "resources": {"wood":2} }`       // sell cards for beans (20 each)
-- `{ "type": "convert_to_resources", "resources": {"ore":1} }`    // buy cards with beans
+- `{ "type": "convert_to_resources", "resources": {"ore":1} }`    // buy resource cards with beans
 - `{ "type": "convert_dev_to_beans", "cards": {"knight":1} }`     // sell dev cards (beansPerResource/2 = 10 each)
 - `{ "type": "buy_vp", "amount": 1 }`                             // beans -> victory points (counts toward the win)
 - `{ "type": "sell_vp", "amount": 1 }`                            // sell beans-bought VP back for beans
 - `{ "type": "bj_bet", "amount": 5 }`                             // deal a blackjack hand (>= minBet beans)
 - `{ "type": "bj_hit" }` · `{ "type": "bj_stand" }` · `{ "type": "bj_double" }` · `{ "type": "bj_split" }`
+- `{ "type": "bj_surrender" }`                                    // forfeit opening two cards; half the bet back
 - `{ "type": "bj_tip", "amount": 2 }`                             // tip the dealer (a beans sink; the dealer cheers)
 
 Robber / 7:

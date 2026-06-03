@@ -152,7 +152,7 @@
       var setupIds = ["setup-preset", "setup-size", "setup-victoryPoints",
         "setup-discardThreshold", "setup-maxRoads", "setup-maxSettlements",
         "setup-maxCities", "setup-bankPerResource",
-        "setup-beansPerResource", "setup-beansPerVictoryPoint"];
+        "setup-beansPerResource", "setup-beansPerVictoryPoint", "setup-devDeckMultiplier"];
       setupIds.forEach(function (id) {
         var node = $(id);
         if (node) node.addEventListener("change", function () { self._onSetupChange(); });
@@ -253,7 +253,8 @@
 
     /* ===================== LOBBY: game setup ===================== */
     _RULE_KEYS: ["victoryPoints", "discardThreshold", "maxRoads", "maxSettlements",
-      "maxCities", "bankPerResource", "beansPerResource", "beansPerVictoryPoint"],
+      "maxCities", "bankPerResource", "beansPerResource", "beansPerVictoryPoint",
+      "devDeckMultiplier"],
 
     _renderSetup: function (lobby, youId, isHost) {
       this._lobby = lobby;

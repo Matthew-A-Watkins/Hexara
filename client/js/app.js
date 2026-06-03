@@ -265,19 +265,14 @@
       if (on && App.state && App.legal) App._maybeAutoSell(App.state, App.legal);
     },
 
-    // When on, automatically cash incoming resources into beans so you can keep
-    // gambling. Fires once per resource snapshot; a pending flag avoids overlaps.
+    // When on, automatically buy development cards from your resources (so you
+    // can cash them for beans). Dev cards can only be bought on your turn after
+    // rolling, so this fires then, one card per state push until you can't.
     _maybeAutoSell: function (state, legal) {
       if (!App.autoSell || !state || state.phase !== "main" || App._autoSellPending) return;
-      var me = (state.players || []).filter(function (p) { return p.id === state.yourId; })[0];
-      if (!me || !me.resources) return;
-      var bundle = {}, any = false;
-      ["wood", "brick", "sheep", "wheat", "ore"].forEach(function (r) {
-        if (me.resources[r] > 0) { bundle[r] = me.resources[r]; any = true; }
-      });
-      if (!any) return;
+      if (!legal || !legal.canBuyDev) return;
       App._autoSellPending = true;
-      Net.sendAction({ type: "convert_to_beans", resources: bundle }).then(function () {
+      Net.sendAction({ type: "buy_dev_card" }).then(function () {
         App._autoSellPending = false;
       });
     },

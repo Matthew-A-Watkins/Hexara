@@ -179,7 +179,10 @@
 
       this._renderDealerHand(t);
       this._renderSeats(c);
-      this._renderControls(me, c);
+      // Don't rebuild the controls (and lose focus) while you're typing a bet.
+      var ae = document.activeElement;
+      var typing = ae && ae.classList && ae.classList.contains("stepper-input") && this._controls.contains(ae);
+      if (!typing) this._renderControls(me, c);
       this._bjSounds(c);
     },
 
@@ -263,10 +266,16 @@
         main.appendChild(this._cbtn("Stand", "stand", t.canStand, "bj_stand", null));
         main.appendChild(this._cbtn("Double", "double", t.canDouble, "bj_double", "card"));
         main.appendChild(this._cbtn("Split", "split", t.canSplit, "bj_split", "card"));
+        main.appendChild(this._cbtn("Surrender", "surrender", t.canSurrender, "bj_surrender", null));
       } else {
         var betWrap = el("div", "bet-wrap");
         betWrap.appendChild(el("span", "bet-label", "Bet"));
-        betWrap.appendChild(this._stepper("bet", Math.max(c.minBet, this.bet), c.minBet, c.beans).node);
+        var betStep = this._stepper("bet", Math.max(c.minBet, this.bet), c.minBet, c.beans);
+        betWrap.appendChild(betStep.node);
+        var maxBtn = el("button", "btn btn-sm", "Max");
+        maxBtn.title = "Bet everything";
+        maxBtn.addEventListener("click", function () { betStep.setMax(); });
+        betWrap.appendChild(maxBtn);
         main.appendChild(betWrap);
         var deal = this._cbtn("Deal", "deal", c.canBet, "bj_bet", "chip", function () { return { amount: Math.max(c.minBet, self.bet) }; });
         main.appendChild(deal);
@@ -294,11 +303,11 @@
       extra.appendChild(endBtn);
 
       var autoWrap = el("label", "opt-toggle casino-toggle");
-      autoWrap.title = "Automatically cash incoming resources into beans";
+      autoWrap.title = "Automatically buy development cards from your resources on your turn (cash them in below for beans)";
       var cb = el("input"); cb.type = "checkbox"; cb.checked = !!(window.App && App.autoSell);
       cb.addEventListener("change", function () { if (window.App) App.setAutoSell(this.checked); });
       autoWrap.appendChild(cb);
-      autoWrap.appendChild(document.createTextNode(" Auto-sell"));
+      autoWrap.appendChild(document.createTextNode(" Auto-buy dev"));
       extra.appendChild(autoWrap);
 
       var countBtn = el("button", "btn btn-sm", this.showCount ? "Hide count" : "Counting aid");
@@ -325,22 +334,30 @@
       return b;
     },
 
+    // A stepper with a typeable number input + / − (and an optional Max via
+    // the returned setMax). You can drag the bet anywhere by just typing it.
     _stepper: function (field, value, min, max) {
       var self = this;
       var v = Math.max(min, Math.min(value, max == null ? value : max));
       this[field] = v;
       var node = el("span", "mini-stepper");
       var minus = el("button", "btn btn-sm", "−");
-      var cnt = el("span", "pcount", String(v));
+      var input = el("input", "stepper-input");
+      input.type = "number"; input.min = min; if (max != null) input.max = max;
+      input.value = String(v);
       var plus = el("button", "btn btn-sm", "+");
-      function set(x) {
+      function set(x, fromInput) {
+        if (isNaN(x)) x = min;
         v = Math.max(min, max == null ? x : Math.min(x, max));
-        cnt.textContent = String(v); self[field] = v;
+        self[field] = v;
+        if (!fromInput) input.value = String(v);
       }
       minus.addEventListener("click", function () { set(v - 1); });
       plus.addEventListener("click", function () { set(v + 1); });
-      node.appendChild(minus); node.appendChild(cnt); node.appendChild(plus);
-      return { node: node };
+      input.addEventListener("input", function () { set(parseInt(this.value, 10), true); });
+      input.addEventListener("change", function () { set(parseInt(this.value, 10)); });
+      node.appendChild(minus); node.appendChild(input); node.appendChild(plus);
+      return { node: node, setMax: function () { if (max != null) set(max); } };
     },
 
     _seenCards: function (c) {
@@ -363,7 +380,7 @@
       var wrap = el("div", "cashier");
 
       // resources <-> beans
-      wrap.appendChild(el("h4", null, "Resources · " + c.beansPerResource + " beans each"));
+      wrap.appendChild(el("h4", null, "Buy resources · " + c.beansPerResource + " beans each"));
       var resRow = el("div", "res-click-row");
       RES.forEach(function (r) {
         resRow.appendChild(UI._resClickCard(r, self.sel[r], 0, true, {
@@ -373,9 +390,8 @@
       });
       wrap.appendChild(resRow);
       var resBtns = el("div", "trade-btns");
-      var sellBtn = el("button", "btn casino-btn", "Sell → beans");
-      var buyBtn = el("button", "btn casino-btn", "Buy ← beans");
-      resBtns.appendChild(sellBtn); resBtns.appendChild(buyBtn);
+      var buyBtn = el("button", "btn casino-btn", "Buy with beans");
+      resBtns.appendChild(buyBtn);
       wrap.appendChild(resBtns);
 
       // dev cards -> beans
@@ -419,14 +435,12 @@
       wrap.appendChild(vpHint);
 
       function total() { return RES.reduce(function (a, r) { return a + self.sel[r]; }, 0); }
-      function haveAll() { return RES.every(function (r) { return self.sel[r] <= (have[r] || 0); }); }
       function upd() {
         var n = total();
-        sellBtn.disabled = !(n > 0 && haveAll());
         buyBtn.disabled = !(n > 0 && c.beans >= n * c.beansPerResource);
+        buyBtn.textContent = n > 0 ? ("Buy " + n + " for " + n * c.beansPerResource + " beans") : "Buy with beans";
       }
       function bundle() { var o = {}, any = false; RES.forEach(function (r) { if (self.sel[r] > 0) { o[r] = self.sel[r]; any = true; } }); return any ? o : null; }
-      sellBtn.addEventListener("click", function () { var b = bundle(); if (!b) return; if (window.Sound) Sound.play("cash"); Net.sendAction({ type: "convert_to_beans", resources: b }); self.sel = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 }; });
       buyBtn.addEventListener("click", function () { var b = bundle(); if (!b) return; if (window.Sound) Sound.play("chip"); Net.sendAction({ type: "convert_to_resources", resources: b }); self.sel = { wood: 0, brick: 0, sheep: 0, wheat: 0, ore: 0 }; });
       upd();
       return wrap;
