@@ -227,6 +227,13 @@
 
       // Sounds, the your-turn glow, and auto-roll all react to the new state.
       App._reactToState(prev, state, legal);
+      // A rolled 7 kicks you out of the casino: the robber wants placing and
+      // the board is hidden behind the modal otherwise. (A required discard
+      // already replaces the casino with the discard picker.)
+      if (UI._openModalKind === "casino" && legal.robberMove) {
+        UI.closeModal();
+        UI.toast("A 7! Leave the table and place the robber.", "info");
+      }
       if (UI._openModalKind === "casino" && window.Casino) Casino.refresh();
     },
 

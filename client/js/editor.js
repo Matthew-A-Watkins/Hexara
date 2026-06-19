@@ -9,24 +9,33 @@
 (function () {
   "use strict";
 
-  var TERRAINS = ["forest", "hills", "pasture", "fields", "mountains", "desert"];
+  var TERRAINS = ["forest", "hills", "pasture", "fields", "mountains", "desert", "gold", "beans"];
   var TERRAIN_LABEL = {
     forest: "Forest", hills: "Hills", pasture: "Pasture",
     fields: "Fields", mountains: "Mountains", desert: "Desert",
+    gold: "Gold", beans: "Beans",
   };
   var TERRAIN_COLOR = {
     forest: "#2e7d32", hills: "#c1572e", pasture: "#8bc34a",
     fields: "#e3b23c", mountains: "#6b7785", desert: "#e6d3a8",
+    gold: "#e0b81e", beans: "#b07a2a",
   };
   var TERRAIN_RES = {
     forest: "wood", hills: "brick", pasture: "sheep",
-    fields: "wheat", mountains: "ore", desert: null,
+    fields: "wheat", mountains: "ore", desert: null, gold: null, beans: null,
   };
   var NUMBERS = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
   var PIPS = { 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 8: 5, 9: 4, 10: 3, 11: 2, 12: 1 };
   var NUM_CYCLE = [6, 8, 5, 9, 4, 10, 3, 11, 2, 12];
   var HEX_SIZE = 60;
   var MAX_RADIUS = 5;
+  // Axial neighbour for each edge dir 0-5 (0 = the east-facing edge, then
+  // clockwise). Must match the server's corner ordering in geometry.py.
+  var NEIGH = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]];
+  var PORT_TYPES = ["3:1", "wood", "brick", "sheep", "wheat", "ore"];
+  var PORT_COLOR = { "3:1": "#7a4a23", wood: "#2e7d32", brick: "#c1572e", sheep: "#8bc34a", wheat: "#e3b23c", ore: "#6b7785" };
+  var PORT_LABEL = { "3:1": "3:1 Port", wood: "Wood 2:1", brick: "Brick 2:1", sheep: "Sheep 2:1", wheat: "Wheat 2:1", ore: "Ore 2:1" };
+  var PORT_SHORT = { "3:1": "3:1", wood: "Wd", brick: "Br", sheep: "Sh", wheat: "Wt", ore: "Or" };
 
   function el(tag, cls, txt) {
     var e = document.createElement(tag);
@@ -49,12 +58,20 @@
     return out;
   }
   function key(q, r) { return q + "," + r; }
+  function key3(q, r, d) { return q + "," + r + "," + d; }
+  // Midpoint of edge `d` (0-5) of a hex centred at c — corner i sits at 60i-30°.
+  function edgeMid(c, d) {
+    var a1 = (60 * d - 30) * Math.PI / 180, a2 = (60 * (d + 1) - 30) * Math.PI / 180;
+    return { x: c.cx + (Math.cos(a1) + Math.cos(a2)) * HEX_SIZE / 2,
+             y: c.cy + (Math.sin(a1) + Math.sin(a2)) * HEX_SIZE / 2 };
+  }
 
   var MapEditor = {
     spec: null,        // working spec: {name, tiles:[{q,r,terrain,number}], robber:{q,r}, ports?}
     tiles: null,       // map "q,r" -> {q,r,terrain,number}
     robber: null,      // {q,r} or null
-    portsMode: "auto", // "auto" | "none"
+    portsMode: "auto", // "auto" | "none" | "custom"
+    ports: null,       // map "q,r,dir" -> port type (only used in "custom" mode)
     name: "Custom Map",
     tool: { kind: "terrain", value: "forest" },
     onApply: null,
@@ -75,7 +92,16 @@
     _load: function (spec) {
       spec = spec || {};
       this.name = spec.name || "Custom Map";
-      this.portsMode = (spec.ports && spec.ports.length === 0) ? "none" : "auto";
+      this.ports = {};
+      if (spec.portsEdges && spec.portsEdges.length) {
+        this.portsMode = "custom";
+        var self = this;
+        spec.portsEdges.forEach(function (p) {
+          self.ports[key3(p.q, p.r, p.dir)] = p.type;
+        });
+      } else {
+        this.portsMode = (spec.ports && spec.ports.length === 0) ? "none" : "auto";
+      }
       var tiles = {};
       if (spec.tiles && spec.tiles.length) {
         spec.tiles.forEach(function (t) {
@@ -93,12 +119,25 @@
         field.forEach(function (a, i) { var t = MapEditor._defaultTile(a[0], a[1], i); tiles[key(a[0], a[1])] = t; });
       }
       this.tiles = tiles;
+      this._prunePorts();
       // robber
       this.robber = null;
       if (spec.robber && spec.robber.q != null) this.robber = { q: spec.robber.q, r: spec.robber.r };
       if (!this.robber || !this.tiles[key(this.robber.q, this.robber.r)]) {
         this.robber = this._firstDesert() || this._anyTile();
       }
+    },
+
+    // Drop ports whose tile vanished or whose edge is no longer coastal.
+    _prunePorts: function () {
+      var self = this;
+      Object.keys(this.ports || {}).forEach(function (k) {
+        var p = k.split(",");
+        var q = +p[0], r = +p[1], d = +p[2];
+        if (!self.tiles[key(q, r)]) { delete self.ports[k]; return; }
+        var nb = NEIGH[d];
+        if (self.tiles[key(q + nb[0], r + nb[1])]) delete self.ports[k];
+      });
     },
 
     _defaultTile: function (q, r, i) {
@@ -128,7 +167,17 @@
       tiles.sort(function (a, b) { return a.r - b.r || a.q - b.q; });
       var spec = { name: this.name || "Custom Map", tiles: tiles };
       if (this.robber) spec.robber = { q: this.robber.q, r: this.robber.r };
-      if (this.portsMode === "none") spec.ports = [];
+      if (this.portsMode === "none") {
+        spec.ports = [];
+      } else if (this.portsMode === "custom") {
+        var self = this;
+        var pe = Object.keys(this.ports).sort().map(function (k) {
+          var p = k.split(",");
+          return { q: +p[0], r: +p[1], dir: +p[2], type: self.ports[k] };
+        });
+        if (pe.length) spec.portsEdges = pe;
+        else spec.ports = [];  // "custom" with nothing placed = no ports
+      }
       return spec;
     },
 
@@ -174,11 +223,13 @@
       var portWrap = el("label", "field");
       portWrap.appendChild(el("span", null, "Ports"));
       var portSel = el("select");
-      [["auto", "Auto (spread around coast)"], ["none", "None"]].forEach(function (o) {
+      [["auto", "Auto (spread around coast)"], ["none", "None"],
+       ["custom", "Custom — place with the Port brushes"]].forEach(function (o) {
         var op = el("option", null, o[1]); op.value = o[0]; portSel.appendChild(op);
       });
       portSel.value = this.portsMode;
-      portSel.addEventListener("change", function () { self.portsMode = this.value; self._syncText(); });
+      this._portSel = portSel;
+      portSel.addEventListener("change", function () { self.portsMode = this.value; self._draw(); self._syncText(); });
       portWrap.appendChild(portSel);
       top.appendChild(portWrap);
       modal.appendChild(top);
@@ -248,8 +299,9 @@
       }
       var terrRow = el("div", "brush-row");
       terrRow.appendChild(el("span", "brush-label", "Terrain"));
+      var darkText = { fields: 1, pasture: 1, desert: 1, gold: 1 };
       TERRAINS.forEach(function (t) {
-        terrRow.appendChild(brush(TERRAIN_LABEL[t], "terrain", t, TERRAIN_COLOR[t], t === "fields" || t === "pasture" || t === "desert" ? "#3a2a18" : "#fff"));
+        terrRow.appendChild(brush(TERRAIN_LABEL[t], "terrain", t, TERRAIN_COLOR[t], darkText[t] ? "#3a2a18" : "#fff"));
       });
       wrap.appendChild(terrRow);
 
@@ -259,6 +311,14 @@
         numRow.appendChild(brush(String(n), "number", n, "#f3e6c8", n === 6 || n === 8 ? "#c0392b" : "#3a2a18"));
       });
       wrap.appendChild(numRow);
+
+      var portRow = el("div", "brush-row");
+      portRow.appendChild(el("span", "brush-label", "Ports"));
+      PORT_TYPES.forEach(function (pt) {
+        var dark = pt === "sheep" || pt === "wheat";
+        portRow.appendChild(brush(PORT_LABEL[pt], "port", pt, PORT_COLOR[pt], dark ? "#3a2a18" : "#fff"));
+      });
+      wrap.appendChild(portRow);
 
       var toolRow = el("div", "brush-row");
       toolRow.appendChild(el("span", "brush-label", "Tools"));
@@ -301,6 +361,7 @@
         next[k] = MapEditor.tiles[k] || MapEditor._defaultTile(a[0], a[1], i);
       });
       this.tiles = next;
+      this._prunePorts();
       if (!this.robber || !this.tiles[key(this.robber.q, this.robber.r)]) {
         this.robber = this._firstDesert() || this._anyTile();
       }
@@ -393,6 +454,33 @@
           self._robberMark(self._wx(c.cx), self._wy(c.cy));
         }
       });
+
+      // placed ports (custom mode): badge off the coast, like in-game
+      if (this.portsMode === "custom") {
+        Object.keys(this.ports).forEach(function (k) {
+          var p = k.split(",");
+          var q = +p[0], r = +p[1], d = +p[2];
+          var t = self.ports[k];
+          var c = hexCenter(q, r);
+          var m = edgeMid(c, d);
+          var vx = m.x - c.cx, vy = m.y - c.cy;
+          var L = Math.hypot(vx, vy) || 1;
+          var sx = self._wx(m.x + vx / L * 36), sy = self._wy(m.y + vy / L * 36);
+          var rad = Math.max(8, 13 * self._t.s);
+          ctx.beginPath();
+          ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+          ctx.fillStyle = PORT_COLOR[t] || "#7a4a23";
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = "#0c0805";
+          ctx.stroke();
+          ctx.fillStyle = (t === "sheep" || t === "wheat") ? "#3a2a18" : "#fff";
+          ctx.font = "700 " + Math.max(8, Math.round(rad * 0.72)) + 'px "Segoe UI",Arial,sans-serif';
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(PORT_SHORT[t] || "?", sx, sy);
+        });
+      }
     },
 
     _chit: function (cx, cy, n) {
@@ -464,6 +552,26 @@
       return best && bestD <= rpx * rpx ? { q: best[0], r: best[1] } : null;
     },
 
+    // Map a click to the nearest edge (tile + dir 0-5) of any existing tile.
+    _pickEdge: function (ev) {
+      var rect = this.canvas.getBoundingClientRect();
+      var px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+      var best = null, bestD = Infinity;
+      var self = this;
+      Object.keys(this.tiles).forEach(function (k) {
+        var t = self.tiles[k];
+        var c = hexCenter(t.q, t.r);
+        for (var d = 0; d < 6; d++) {
+          var m = edgeMid(c, d);
+          var dx = self._wx(m.x) - px, dy = self._wy(m.y) - py;
+          var dd = dx * dx + dy * dy;
+          if (dd < bestD) { bestD = dd; best = { q: t.q, r: t.r, dir: d }; }
+        }
+      });
+      var rpx = HEX_SIZE * this._t.s * 0.55;
+      return best && bestD <= rpx * rpx ? best : null;
+    },
+
     _onCanvasHover: function (ev) {
       var hit = this._pick(ev);
       var changed = (!!hit !== !!this._hover) || (hit && this._hover && (hit.q !== this._hover.q || hit.r !== this._hover.r));
@@ -472,16 +580,36 @@
     },
 
     _onCanvasClick: function (ev) {
+      var tool = this.tool;
+      // Port brush: snap to the nearest coastal edge; same type again removes.
+      if (tool.kind === "port") {
+        var eh = this._pickEdge(ev);
+        if (!eh) return;
+        var nb = NEIGH[eh.dir];
+        if (this.tiles[key(eh.q + nb[0], eh.r + nb[1])]) {
+          if (window.UI) UI.toast("Ports must sit on the coast — that edge faces land.");
+          return;
+        }
+        var pk = key3(eh.q, eh.r, eh.dir);
+        if (this.ports[pk] === tool.value) delete this.ports[pk];
+        else this.ports[pk] = tool.value;
+        this.portsMode = "custom";
+        if (this._portSel) this._portSel.value = "custom";
+        this._draw();
+        this._syncText();
+        return;
+      }
       var hit = this._pick(ev);
       if (!hit) return;
       var k = key(hit.q, hit.r);
       var t = this.tiles[k];
-      var tool = this.tool;
       if (tool.kind === "add") {
         if (!t) this.tiles[k] = { q: hit.q, r: hit.r, terrain: "fields", number: 6 };
+        this._prunePorts();  // a new tile can landlock a neighbouring port
       } else if (tool.kind === "remove") {
         if (t) {
           delete this.tiles[k];
+          this._prunePorts();
           if (this.robber && this.robber.q === hit.q && this.robber.r === hit.r) {
             this.robber = this._firstDesert() || this._anyTile();
           }

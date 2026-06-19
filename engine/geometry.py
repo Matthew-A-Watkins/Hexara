@@ -168,44 +168,79 @@ def build_geometry(axials=None, port_types=None, ports_explicit=None):
         v["edges"] = sorted(v["edges"])
 
     # --- Ports ------------------------------------------------------------
-    ports = _make_ports(vertices, edges, port_types, ports_explicit)
+    ports = _make_ports(vertices, hexes, edges, port_types, ports_explicit)
 
-    xs = [v["x"] for v in vertices] + [p["x"] for p in ports]
-    ys = [v["y"] for v in vertices] + [p["y"] for p in ports]
-    bounds = {"minx": min(xs), "miny": min(ys), "maxx": max(xs), "maxy": max(ys)}
-
-    return {
+    return _recompute_bounds({
         "hexes": hexes,
         "vertices": vertices,
         "edges": edges,
         "ports": ports,
         "hex_vertices": hex_vertices,
         "hex_edges": hex_edges,
-        "bounds": bounds,
-    }
+        "bounds": None,
+    })
 
 
-def _port_marker(vertices, v1, v2, eid):
-    """A port record sitting on edge (v1,v2), nudged outward from the centre."""
+# How far a port badge sits off its edge, in layout px. Far enough that the
+# marker clears the tile artwork, close enough that the dock lines still read.
+PORT_NUDGE = 36.0
+
+
+def _port_marker(vertices, hexes, edge):
+    """A port record on ``edge``, pushed outward AWAY FROM THE LAND.
+
+    Outward is the normal away from the owning hex's centre (coastal edges
+    have exactly one hex), so the badge never sits on a tile — nudging away
+    from the board origin (the old behaviour) overlapped tiles whenever the
+    coast didn't face the centre, e.g. on irregular islands.
+    """
+    v1, v2 = edge["v1"], edge["v2"]
     mx = (vertices[v1]["x"] + vertices[v2]["x"]) / 2.0
     my = (vertices[v1]["y"] + vertices[v2]["y"]) / 2.0
-    d = math.hypot(mx, my) or 1.0
+    if len(edge["hexes"]) == 1:
+        h = hexes[edge["hexes"][0]]
+        dx, dy = mx - h["cx"], my - h["cy"]
+    else:  # inland edge (only possible via odd explicit specs): fall back
+        dx, dy = mx, my
+    d = math.hypot(dx, dy) or 1.0
     return {
-        "edge": eid,
+        "edge": edge["id"],
         "vertices": [v1, v2],
-        "x": mx + mx / d * 28.0,
-        "y": my + my / d * 28.0,
+        "x": mx + dx / d * PORT_NUDGE,
+        "y": my + dy / d * PORT_NUDGE,
     }
 
 
-def _make_ports(vertices, edges, port_types, ports_explicit):
+def _recompute_bounds(board):
+    """Refresh the board's bounding box (vertices + port markers)."""
+    xs = [v["x"] for v in board["vertices"]] + [p["x"] for p in board["ports"]]
+    ys = [v["y"] for v in board["vertices"]] + [p["y"] for p in board["ports"]]
+    board["bounds"] = {"minx": min(xs), "miny": min(ys), "maxx": max(xs), "maxy": max(ys)}
+    return board
+
+
+def add_edge_ports(board, edge_ports):
+    """Attach ports to specific edges of an already-built board.
+
+    edge_ports: iterable of (edge_id, port_type). Used by custom maps that pin
+    ports to exact hex edges. Recomputes the bounds afterwards."""
+    for eid, ptype in edge_ports:
+        rec = _port_marker(board["vertices"], board["hexes"], board["edges"][eid])
+        rec["type"] = ptype
+        board["ports"].append(rec)
+    return _recompute_bounds(board)
+
+
+def _make_ports(vertices, hexes, edges, port_types, ports_explicit):
     """Return port records, either placed exactly (ports_explicit) or spread
     evenly around the coast from a list of port type strings (port_types)."""
     if ports_explicit:
         # Map a vertex pair -> edge id so explicit ports can carry their edge.
         pair_to_eid = {}
+        edge_by_id = {}
         for e in edges:
             pair_to_eid[frozenset((e["v1"], e["v2"]))] = e["id"]
+            edge_by_id[e["id"]] = e
         out = []
         for spec in ports_explicit:
             v1, v2 = spec["vertices"]
@@ -214,14 +249,21 @@ def _make_ports(vertices, edges, port_types, ports_explicit):
             if not (0 <= v1 < len(vertices) and 0 <= v2 < len(vertices)):
                 continue
             eid = pair_to_eid.get(frozenset((v1, v2)))
-            rec = _port_marker(vertices, v1, v2, eid)
+            if eid is not None:
+                rec = _port_marker(vertices, hexes, edge_by_id[eid])
+            else:  # not a real edge: place it off the pair's midpoint
+                mx = (vertices[v1]["x"] + vertices[v2]["x"]) / 2.0
+                my = (vertices[v1]["y"] + vertices[v2]["y"]) / 2.0
+                d = math.hypot(mx, my) or 1.0
+                rec = {"edge": None, "vertices": [v1, v2],
+                       "x": mx + mx / d * PORT_NUDGE, "y": my + my / d * PORT_NUDGE}
             rec["type"] = spec["type"]
             out.append(rec)
         return out
-    return _place_ports(vertices, edges, port_types or [])
+    return _place_ports(vertices, hexes, edges, port_types or [])
 
 
-def _place_ports(vertices, edges, port_types):
+def _place_ports(vertices, hexes, edges, port_types):
     """Spread the given port types over coastal edges, evenly around the coast
     in clockwise order. With the canonical sequence on the standard board this
     reproduces the 9-port layout exactly."""
@@ -249,7 +291,7 @@ def _place_ports(vertices, edges, port_types):
             idx = (idx + 1) % n
         used.add(idx)
         e = coastal[idx]
-        rec = _port_marker(vertices, e["v1"], e["v2"], e["id"])
+        rec = _port_marker(vertices, hexes, e)
         rec["type"] = ptype
         ports.append(rec)
     return ports

@@ -38,26 +38,36 @@ _TERRAIN_WEIGHTS = {
     C.TERRAIN_FOREST: 4, C.TERRAIN_PASTURE: 4, C.TERRAIN_FIELDS: 4,
     C.TERRAIN_HILLS: 3, C.TERRAIN_MOUNTAINS: 3,
 }
-_VALID_TERRAINS = set(_RESOURCE_TERRAINS) | {C.TERRAIN_DESERT}
+_VALID_TERRAINS = set(_RESOURCE_TERRAINS) | {C.TERRAIN_DESERT, C.TERRAIN_GOLD, C.TERRAIN_BEANS}
+# Terrains that carry a number token and produce when rolled.
+_PRODUCING_TERRAINS = set(_RESOURCE_TERRAINS) | {C.TERRAIN_GOLD, C.TERRAIN_BEANS}
 _VALID_NUMBERS = set(range(2, 13)) - {7}
 
 
 # --------------------------------------------------------------------- pools
-def terrain_pool(n, rng):
-    """A list of ``n`` terrains in standard-ish proportions (>=1 desert)."""
+def terrain_pool(n, rng, gold=0, beans=0, deserts=None):
+    """A list of ``n`` terrains in standard-ish proportions, with optional
+    ``gold`` fields, ``beans`` tiles and a desert count mixed in."""
     if n <= 0:
         return []
-    deserts = max(1, round(n / 19.0))
-    deserts = min(deserts, n - 1) if n > 1 else n
-    remaining = n - deserts
+    gold = max(0, min(int(gold), n))
+    beans = max(0, min(int(beans), n - gold))
+    room = n - gold - beans  # slots left for desert + resource terrains
+    if deserts is None:
+        deserts = max(1, round(n / 19.0))
+    deserts = max(0, min(int(deserts), room))
+    # Always leave at least one producing resource tile when there's room for one
+    # (avoids a degenerate all-desert board that can never produce).
+    if room >= 1:
+        deserts = min(deserts, room - 1)
+    remaining = n - deserts - gold - beans
     total_w = sum(_TERRAIN_WEIGHTS[t] for t in _RESOURCE_TERRAINS)
     counts = {t: int(remaining * _TERRAIN_WEIGHTS[t] / total_w) for t in _RESOURCE_TERRAINS}
-    pool = [C.TERRAIN_DESERT] * deserts
+    pool = ([C.TERRAIN_DESERT] * deserts) + ([C.TERRAIN_GOLD] * gold) + ([C.TERRAIN_BEANS] * beans)
     for t, c in counts.items():
         pool += [t] * c
-    # Pad any rounding shortfall by cycling resource terrains.
     i = 0
-    while len(pool) < n:
+    while len(pool) < n:  # pad any rounding shortfall by cycling resource terrains
         pool.append(_RESOURCE_TERRAINS[i % len(_RESOURCE_TERRAINS)])
         i += 1
     return pool[:n]
@@ -89,45 +99,81 @@ def auto_port_types(n_ports):
 
 
 # ------------------------------------------------------------------- presets
-def _preset_specs():
-    return {
-        "standard": {
-            "name": "Standard Island",
-            "description": "The classic 19-hex board, randomized each game.",
-            "radius": 2,
-        },
-        "small": {
-            "name": "Small Cove",
-            "description": "A compact 7-hex board for fast 2-3 player duels.",
-            "radius": 1,
-        },
-        "large": {
-            "name": "Greater Isle",
-            "description": "A 37-hex island for longer 4-6 player games.",
-            "radius": 3,
-        },
-        "huge": {
-            "name": "Continent",
-            "description": "A sprawling 61-hex landmass for epic sessions.",
-            "radius": 4,
-        },
-        "frontier": {
-            "name": "Frontier (irregular)",
-            "description": "A jagged, non-hexagonal island shape.",
-            "axials": _frontier_axials(),
-        },
-    }
+def _offset(field, dq, dr):
+    return [(q + dq, r + dr) for (q, r) in field]
+
+
+def _islands(centers, radius):
+    """A non-overlapping set of radius-`radius` islands at the given centres."""
+    out = []
+    for (cq, cr) in centers:
+        out += _offset(geo.hex_field(radius), cq, cr)
+    # de-dup defensively in case centres are too close
+    return [list(c) for c in sorted(set(out))]
+
+
+def _elongated(rq, rr, rs):
+    """A stretched hexagon: |q|<=rq, |r|<=rr, |q+r|<=rs."""
+    return [[q, r] for r in range(-rr, rr + 1) for q in range(-rq, rq + 1)
+            if abs(q) <= rq and abs(r) <= rr and abs(q + r) <= rs]
 
 
 def _frontier_axials():
-    """An irregular island: the radius-2 field minus three corners, plus two
-    outcrops — a non-hexagonal coastline that still plays by the base rules."""
     field = set(map(tuple, geo.hex_field(2)))
     for corner in [(2, -2), (-2, 2), (2, 0)]:
         field.discard(corner)
     for outcrop in [(0, -3), (-1, 3)]:
         field.add(outcrop)
     return [list(c) for c in sorted(field)]
+
+
+def _preset_specs():
+    return {
+        # --- sizes ---
+        "standard": {"name": "Standard Island", "radius": 2,
+                     "description": "The classic 19-hex board, randomized each game."},
+        "small": {"name": "Small Cove", "radius": 1,
+                  "description": "A compact 7-hex board for fast 2-3 player duels."},
+        "large": {"name": "Greater Isle", "radius": 3,
+                  "description": "A 37-hex island for longer 4-6 player games."},
+        "huge": {"name": "Continent", "radius": 4,
+                 "description": "A sprawling 61-hex landmass for epic sessions."},
+        "colossal": {"name": "Colossus", "radius": 5,
+                     "description": "A monstrous 91-hex world. Bring snacks."},
+        # --- shapes ---
+        "extended": {"name": "Greater Catan (5-6)", "axials": _elongated(3, 2, 3),
+                     "description": "An extended board sized for 5-6 players."},
+        "frontier": {"name": "Frontier", "axials": _frontier_axials(),
+                     "description": "A jagged, non-hexagonal coastline."},
+        "twin": {"name": "Twin Continents", "axials": _islands([(-4, 1), (4, -1)], 2),
+                 "description": "Two landmasses separated by open sea."},
+        # --- archipelagos (Seafarers-style layouts, base rules) ---
+        "newshores": {"name": "Heading for New Shores", "gold": 2,
+                      "axials": _islands([(0, 0), (7, -2), (3, 5)], 1),
+                      "description": "Three islands and a couple of gold fields to chase."},
+        "fourislands": {"name": "The Four Islands", "axials": _islands([(0, 0), (6, 0), (0, 5), (6, 5)], 1),
+                        "description": "Four equal islands — claim your shores."},
+        "pirateislands": {"name": "The Pirate Islands", "gold": 1,
+                          "axials": _islands([(0, 0), (6, -1), (2, 5), (8, 4), (4, 9)], 1),
+                          "description": "Five scattered isles for adventurous fleets."},
+        # --- terrain themes ---
+        "golden": {"name": "Golden Rivers", "radius": 2, "gold": 5,
+                   "description": "A standard isle veined with gold fields."},
+        "treasure": {"name": "Treasure Isles", "gold": 4,
+                     "axials": _islands([(0, 0), (6, 0), (3, 5)], 1),
+                     "description": "Three islands rich with gold."},
+        "desertrun": {"name": "Through the Desert", "radius": 3, "deserts": 7,
+                      "description": "A parched 37-hex board — every oasis counts."},
+        # --- gamble ---
+        "highroller": {"name": "High Roller's Isle", "radius": 2, "beans": 3,
+                       "description": "Standard isle studded with bean tiles (needs Gamble mode)."},
+    }
+
+
+def _spec_has_beans(spec):
+    if spec.get("beans"):
+        return True
+    return any(t.get("terrain") == C.TERRAIN_BEANS for t in (spec.get("tiles") or []))
 
 
 def list_presets():
@@ -139,6 +185,7 @@ def list_presets():
             "name": spec["name"],
             "description": spec["description"],
             "tiles": _spec_tile_count(spec),
+            "needsGamble": _spec_has_beans(spec),  # bean tiles only pay in Gamble mode
         })
     return out
 
@@ -179,7 +226,10 @@ def validate(spec):
 
     if spec.get("tiles"):
         out["tiles"] = _validate_tiles(spec["tiles"])
-        if "portsExplicit" in spec or "ports" in spec:
+        coords = set((t["q"], t["r"]) for t in out["tiles"])
+        if spec.get("portsEdges"):
+            out["portsEdges"] = _validate_port_edges(spec["portsEdges"], coords)
+        elif "portsExplicit" in spec or "ports" in spec:
             out.update(_validate_ports(spec, out["tiles"]))
         if "robber" in spec:
             out["robber"] = spec["robber"]
@@ -198,13 +248,57 @@ def validate(spec):
             raise MapError("Radius must be between %d and %d." % (MIN_RADIUS, MAX_RADIUS))
         out["radius"] = radius
 
-    # Optional procedural overrides. A plain radius-2 island keeps the canonical
-    # 9-port layout so the standard game looks exactly as before; other sizes
-    # auto-spread a scaled set of ports.
-    if spec.get("ports"):
+    # Optional gold-field / bean-tile / desert counts mixed into the random fill.
+    # Use `in spec` (not truthiness) so an explicit 0 (e.g. deserts:0) is kept.
+    for key in ("gold", "beans", "deserts"):
+        if key in spec and spec[key] is not None:
+            try:
+                v = int(spec[key])
+            except (TypeError, ValueError):
+                raise MapError("'%s' must be a whole number." % key)
+            if v < 0:
+                raise MapError("'%s' can't be negative." % key)
+            out[key] = v
+
+    # Optional procedural overrides. Pinned ports (portsEdges) win; otherwise a
+    # plain radius-2 island keeps the canonical 9-port layout so the standard
+    # game looks exactly as before, and other sizes auto-spread a scaled set.
+    if spec.get("portsEdges"):
+        if out.get("axials"):
+            coords = set((a[0], a[1]) for a in out["axials"])
+        else:
+            coords = set(geo.hex_field(out["radius"]))
+        out["portsEdges"] = _validate_port_edges(spec["portsEdges"], coords)
+    elif spec.get("ports"):
         out["ports"] = _validate_port_types(spec["ports"])
     elif out.get("radius") == 2 and "axials" not in out:
         out["ports"] = list(C.PORT_SEQUENCE)
+    return out
+
+
+def _validate_port_edges(lst, coords):
+    """Validate pinned ports: [{q, r, dir, type}] with dir 0-5 counting from the
+    east-facing edge clockwise. Coastal-ness is checked at resolve time."""
+    if not isinstance(lst, list):
+        raise MapError("'portsEdges' must be a list.")
+    out, seen = [], set()
+    for p in lst:
+        if not isinstance(p, dict):
+            raise MapError("Each port needs q, r, dir and type.")
+        try:
+            q, r, d = int(p["q"]), int(p["r"]), int(p["dir"])
+        except (KeyError, TypeError, ValueError):
+            raise MapError("Each port needs whole-number q, r and dir.")
+        if not (0 <= d <= 5):
+            raise MapError("Port 'dir' must be 0-5.")
+        if coords is not None and (q, r) not in coords:
+            raise MapError("Port tile [%d, %d] is not on the board." % (q, r))
+        _check_port_type(p.get("type"))
+        key = (q, r, d)
+        if key in seen:
+            raise MapError("Two ports share the edge at [%d, %d] dir %d." % (q, r, d))
+        seen.add(key)
+        out.append({"q": q, "r": r, "dir": d, "type": p["type"]})
     return out
 
 
@@ -231,7 +325,6 @@ def _validate_tiles(tiles):
     if len(tiles) > MAX_TILES:
         raise MapError("Too many tiles (max %d)." % MAX_TILES)
     seen, out = set(), []
-    deserts = 0
     for t in tiles:
         if not isinstance(t, dict):
             raise MapError("Each tile must be an object with q, r, terrain.")
@@ -247,7 +340,8 @@ def _validate_tiles(tiles):
             raise MapError("Unknown terrain '%s'." % terrain)
         number = t.get("number")
         if terrain == C.TERRAIN_DESERT:
-            deserts += 1
+            number = None
+        elif terrain not in _PRODUCING_TERRAINS:
             number = None
         else:
             if number is None:
@@ -312,6 +406,21 @@ def resolve(spec, rng):
 
 def _build_with_ports(axials, spec, rng, coastal_hint=None):
     """Build geometry, choosing ports from the spec or auto-spreading them."""
+    if spec.get("portsEdges"):
+        # Ports pinned to specific hex edges (the map editor's format).
+        board = geo.build_geometry(axials, port_types=[])
+        qr_to_hid = {(h["q"], h["r"]): h["id"] for h in board["hexes"]}
+        eports = []
+        for pe in spec["portsEdges"]:
+            hid = qr_to_hid.get((pe["q"], pe["r"]))
+            if hid is None:
+                raise MapError("Port tile [%d, %d] is not on the board." % (pe["q"], pe["r"]))
+            eid = board["hex_edges"][hid][pe["dir"]]
+            if not board["edges"][eid]["coastal"]:
+                raise MapError("Ports must sit on coastal edges (tile [%d, %d], dir %d faces land)."
+                               % (pe["q"], pe["r"], pe["dir"]))
+            eports.append((eid, pe["type"]))
+        return geo.add_edge_ports(board, eports)
     if spec.get("portsExplicit"):
         return geo.build_geometry(axials, ports_explicit=spec["portsExplicit"])
     if spec.get("ports"):
@@ -333,20 +442,17 @@ def _resolve_procedural(spec, rng):
     hex_ids = [h["id"] for h in board["hexes"]]
     n = len(hex_ids)
 
-    terrains = terrain_pool(n, rng)
+    terrains = terrain_pool(n, rng, gold=spec.get("gold", 0), beans=spec.get("beans", 0),
+                            deserts=spec.get("deserts"))
     adjacency = _hex_adjacency(board)
 
-    assignment = None
-    number_of = None
-    for _ in range(300):  # retry until red 6/8 tokens are not adjacent
-        rng.shuffle(terrains)
-        assignment = dict(zip(hex_ids, terrains))
-        non_desert = [h for h in hex_ids if assignment[h] != C.TERRAIN_DESERT]
-        nums = number_pool(len(non_desert), rng)
-        rng.shuffle(nums)
-        number_of = dict(zip(non_desert, nums))
-        if _red_numbers_ok(number_of, adjacency):
-            break
+    rng.shuffle(terrains)
+    assignment = dict(zip(hex_ids, terrains))
+    non_desert = [h for h in hex_ids if assignment[h] != C.TERRAIN_DESERT]
+    # Place number tokens so the red 6/8 tokens are never adjacent. Random retry
+    # almost never satisfies this on big boards, so place the reds constructively
+    # onto a non-adjacent (independent) set of hexes, then fill the rest.
+    number_of = _assign_numbers(non_desert, adjacency, rng)
 
     hexes, robber_hex = {}, None
     for h in hex_ids:
@@ -410,3 +516,38 @@ def _red_numbers_ok(number_of, adjacency):
                 if number_of.get(nb) in C.RED_NUMBERS:
                     return False
     return True
+
+
+def _assign_numbers(non_desert, adjacency, rng):
+    """Assign number tokens to ``non_desert`` hexes so the red 6/8 tokens are
+    never adjacent (constructively: pick an independent set for the reds)."""
+    nums = number_pool(len(non_desert), rng)
+    reds = [n for n in nums if n in C.RED_NUMBERS]
+    nonreds = [n for n in nums if n not in C.RED_NUMBERS]
+    order = list(non_desert)
+    rng.shuffle(order)
+    # Greedily collect hexes with no already-chosen red neighbour.
+    red_hexes, chosen = set(), []
+    for h in order:
+        if len(chosen) >= len(reds):
+            break
+        if all(nb not in red_hexes for nb in adjacency.get(h, ())):
+            chosen.append(h)
+            red_hexes.add(h)
+    # If the board is too dense to fit them all apart, place leftovers anywhere.
+    if len(chosen) < len(reds):
+        for h in order:
+            if len(chosen) >= len(reds):
+                break
+            if h not in red_hexes:
+                chosen.append(h)
+                red_hexes.add(h)
+    number_of = {}
+    for i, h in enumerate(chosen):
+        number_of[h] = reds[i]
+    i = 0
+    for h in non_desert:
+        if h not in number_of:
+            number_of[h] = nonreds[i]
+            i += 1
+    return number_of

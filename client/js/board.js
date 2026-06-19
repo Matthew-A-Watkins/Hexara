@@ -36,6 +36,8 @@
     fields: "#e3b23c",
     mountains: "#6b7785",
     desert: "#e6d3a8",
+    gold: "#e0b81e",
+    beans: "#b07a2a",
   };
 
   var BoardView = {
@@ -280,9 +282,11 @@
       this._drawPorts(board);
       this._drawRoads(board, vmap);
       this._drawHighlightEdges(board, vmap);
+      // Hex highlights (robber placement) go UNDER the buildings so you can
+      // still see whose settlements sit where while choosing a target.
+      this._drawHighlightHexes(board, vmap);
       this._drawBuildings(board);
       this._drawHighlightVertices(board);
-      this._drawHighlightHexes(board, vmap);
       this._drawRobber(board);
     },
 

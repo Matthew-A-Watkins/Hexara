@@ -21,6 +21,9 @@ TERRAIN_PASTURE = "pasture"    # -> sheep
 TERRAIN_FIELDS = "fields"      # -> wheat
 TERRAIN_MOUNTAINS = "mountains"  # -> ore
 TERRAIN_DESERT = "desert"      # -> nothing
+# Expansion/scenario terrains:
+TERRAIN_GOLD = "gold"          # gold field -> a random resource per building
+TERRAIN_BEANS = "beans"        # casino tile -> beans (only in Gamble mode)
 
 TERRAIN_RESOURCE = {
     TERRAIN_FOREST: WOOD,
@@ -29,7 +32,12 @@ TERRAIN_RESOURCE = {
     TERRAIN_FIELDS: WHEAT,
     TERRAIN_MOUNTAINS: ORE,
     TERRAIN_DESERT: None,
+    TERRAIN_GOLD: None,         # special-cased in production (random resource)
+    TERRAIN_BEANS: None,        # special-cased in production (beans)
 }
+
+# How many beans a bean tile pays per adjacent settlement (a city pays double).
+BEAN_TILE_PAYOUT = 5
 
 # The 19 tiles of the standard base board.
 TERRAIN_COUNTS = {

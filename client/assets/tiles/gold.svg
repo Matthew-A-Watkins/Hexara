@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
+  <defs>
+    <linearGradient id="gSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff4c2"/>
+      <stop offset="1" stop-color="#f3d878"/>
+    </linearGradient>
+    <linearGradient id="gGround" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e8c23a"/>
+      <stop offset="1" stop-color="#bb8c1c"/>
+    </linearGradient>
+    <radialGradient id="gGlow" cx="0.5" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#fff7d6"/>
+      <stop offset="1" stop-color="#fff7d6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gCoin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff0a8"/>
+      <stop offset="1" stop-color="#d9a417"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" fill="url(#gSky)"/>
+  <circle cx="100" cy="80" r="120" fill="url(#gGlow)"/>
+  <!-- golden hills -->
+  <path d="M0 120 Q60 96 120 116 T200 110 L200 200 L0 200 Z" fill="url(#gGround)" stroke="#9a721a" stroke-width="2.4"/>
+  <path d="M0 152 Q70 130 130 148 Q170 158 200 142 L200 200 L0 200 Z" fill="#cf9c24" stroke="#9a721a" stroke-width="2.2"/>
+  <!-- shimmer streaks -->
+  <g fill="none" stroke="#fff2bd" stroke-width="2.4" opacity="0.7" stroke-linecap="round">
+    <path d="M14 138 Q66 116 122 132"/>
+    <path d="M20 172 Q80 150 140 166"/>
+  </g>
+  <!-- a little stack of coins -->
+  <g stroke="#9a721a" stroke-width="1.6">
+    <ellipse cx="118" cy="176" rx="26" ry="8" fill="#a8801c" stroke="none" opacity="0.4"/>
+    <ellipse cx="120" cy="170" rx="20" ry="7" fill="url(#gCoin)"/>
+    <ellipse cx="120" cy="162" rx="20" ry="7" fill="url(#gCoin)"/>
+    <ellipse cx="120" cy="154" rx="20" ry="7" fill="url(#gCoin)"/>
+    <ellipse cx="120" cy="154" rx="11" ry="3.6" fill="none" stroke="#a87f17" stroke-width="1.4"/>
+  </g>
+  <!-- scattered nuggets -->
+  <g stroke="#9a721a" stroke-width="1.4">
+    <circle cx="48" cy="166" r="9" fill="url(#gCoin)"/>
+    <circle cx="48" cy="166" r="4" fill="none" stroke="#a87f17"/>
+    <circle cx="166" cy="184" r="7" fill="url(#gCoin)"/>
+    <path d="M70 186 q-5 -3 0 -7 q6 -3 11 0 q5 4 0 7 q-6 3 -11 0 Z" fill="#f0c43a"/>
+  </g>
+  <!-- sparkles -->
+  <g fill="#fffbe6">
+    <path d="M150 60 l3 9 9 3 -9 3 -3 9 -3 -9 -9 -3 9 -3 Z"/>
+    <path d="M58 70 l2 6 6 2 -6 2 -2 6 -2 -6 -6 -2 6 -2 Z"/>
+  </g>
+</svg>

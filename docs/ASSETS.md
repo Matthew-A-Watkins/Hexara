@@ -26,6 +26,8 @@ whole 200×200 area with the terrain scene (no transparent margins, no hex borde
 - `fields.svg` — grain: rows of golden wheat under a warm sky strip.
 - `mountains.svg` — ore: grey rocky peaks with exposed ore veins.
 - `desert.svg` — sandy dunes with a cactus / sun-bleached look.
+- `gold.svg` — gold field (scenario): golden hills, a coin stack, sparkles.
+- `beans.svg` — bean tile (Gamble mode): green felt, casino chips, a pile of beans.
 
 ### Resource cards — `client/assets/cards/res_<resource>.svg`  (viewBox 0 0 120 168)
 Playing-card look: rounded rect, coloured border keyed to the resource, a central

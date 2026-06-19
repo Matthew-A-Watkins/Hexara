@@ -152,7 +152,8 @@
       var setupIds = ["setup-preset", "setup-size", "setup-victoryPoints",
         "setup-discardThreshold", "setup-maxRoads", "setup-maxSettlements",
         "setup-maxCities", "setup-bankPerResource",
-        "setup-beansPerResource", "setup-beansPerVictoryPoint", "setup-devDeckMultiplier"];
+        "setup-beansPerResource", "setup-beansPerVictoryPoint", "setup-devDeckMultiplier",
+        "setup-gambleMode", "setup-gambleDevForBeans"];
       setupIds.forEach(function (id) {
         var node = $(id);
         if (node) node.addEventListener("change", function () { self._onSetupChange(); });
@@ -315,8 +316,25 @@
         if (val == null && b.default != null) val = b.default;
         if (document.activeElement !== input) input.value = val != null ? val : "";
       });
+
+      // gamble-mode checkboxes (boolean rules); the sub-option follows the main.
+      var gm = $("setup-gambleMode"), gd = $("setup-gambleDevForBeans");
+      if (gm) gm.checked = !!rules.gambleMode;
+      if (gd) {
+        gd.checked = !!rules.gambleDevForBeans;
+        gd.disabled = !(gm && gm.checked);
+      }
+      var gdw = $("setup-gambleDevWrap");
+      if (gdw) gdw.classList.toggle("disabled", !(gm && gm.checked));
+
+      // Warn if a bean-tile preset is chosen but Gamble mode is off.
       var errEl = $("setup-error");
-      if (errEl) errEl.textContent = "";
+      if (errEl) {
+        var chosen = (presets || []).filter(function (p) { return p.id === curVal; })[0];
+        errEl.textContent = (chosen && chosen.needsGamble && !(rules.gambleMode))
+          ? "⚠ This map has bean tiles — enable Gamble mode or they won't pay out."
+          : "";
+      }
     },
 
     _onSetupChange: function () {
@@ -324,13 +342,18 @@
       var val = sel ? sel.value : "standard";
       var sizeField = $("setup-size-field");
       if (sizeField) sizeField.hidden = val !== "__random";
-      // Selecting "Custom" with nothing authored yet jumps straight to the editor.
-      if (val === "__custom" && !this._customMap) {
-        this.openMapEditor();
-        return;
+      // The dev-cashing sub-option follows Gamble mode immediately.
+      var gm = $("setup-gambleMode"), gd = $("setup-gambleDevForBeans"), gdw = $("setup-gambleDevWrap");
+      if (gm && gd) {
+        gd.disabled = !gm.checked;
+        if (!gm.checked) gd.checked = false;
+        if (gdw) gdw.classList.toggle("disabled", !gm.checked);
       }
+      // Always save the current settings first (so toggling a rule while the
+      // preset is "Custom" with no map yet isn't lost), THEN open the editor.
       var cfg = this._collectConfig();
       if (this.cb.onSetConfig) this.cb.onSetConfig(cfg);
+      if (val === "__custom" && !this._customMap) this.openMapEditor();
     },
 
     _collectConfig: function () {
@@ -339,6 +362,9 @@
         var input = $("setup-" + key);
         if (input && input.value !== "") rules[key] = parseInt(input.value, 10);
       });
+      var gm = $("setup-gambleMode"), gd = $("setup-gambleDevForBeans");
+      rules.gambleMode = gm && gm.checked ? 1 : 0;
+      rules.gambleDevForBeans = (gm && gm.checked && gd && gd.checked) ? 1 : 0;
       var val = ($("setup-preset") || {}).value || "standard";
       var map;
       if (val === "__random") {
@@ -392,6 +418,7 @@
         "pieces " + (rules.maxRoads || 15) + "/" + (rules.maxSettlements || 5) + "/" + (rules.maxCities || 4),
         "bank " + (rules.bankPerResource || 19),
       ];
+      if (rules.gambleMode) parts.push("🎲 Gamble" + (rules.gambleDevForBeans ? " (+dev cashing)" : ""));
       return "Map: " + parts.join(" · ");
     },
 

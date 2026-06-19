@@ -95,9 +95,12 @@ def _casino_view(g, pid):
         # shared table
         "shoeLeft": len(g.bj_shoe) if g.bj_shoe else C.BLACKJACK_DECKS * 52,
         "decks": C.BLACKJACK_DECKS,
-        "seen": list(g.bj_seen),
+        "seen": _public_seen(g),  # excludes face-down dealer hole cards
         "tips": g.bj_tips,
+        "countBias": round(g.bj_count_bias, 2),
+        "canCashDev": g.gamble_mode and g.gamble_dev_for_beans,
         "message": g.bj_message,
+        "chat": list(g.bj_chat),
         "mood": bj["mood"] if bj else "happy",
         "seats": _bj_seats(g, pid),
         "canBet": (not bj or bj["state"] in ("idle", "done")) and beans >= C.BLACKJACK_MIN_BET,
@@ -136,6 +139,20 @@ def _casino_view(g, pid):
         "canSurrender": bool(cur and len(cur["cards"]) == 2 and len(bj["hands"]) == 1),
     }
     return out
+
+
+def _public_seen(g):
+    """The shared seen-list for card counting, MINUS any dealer hole card that
+    is still face-down — otherwise a hidden hole card would leak through the
+    counting aid (everyone could deduce it)."""
+    seen = list(g.bj_seen)
+    for opid in g.order:
+        bj = g.players[opid].get("bj")
+        if bj and bj.get("dealerHidden") and len(bj.get("dealer", [])) >= 2:
+            hole = bj["dealer"][1]
+            if hole in seen:
+                seen.remove(hole)  # drop one instance (count is rank-based)
+    return seen
 
 
 def _bj_seats(g, viewer):

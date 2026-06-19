@@ -933,7 +933,8 @@ def leaderboard_records_win_once():
 # ----------------------------------------------------- wave 3: dev/tips/leave
 @test
 def convert_dev_cards_to_beans():
-    g = Game(PLAYERS, config={"rules": {"beansPerResource": 20}}, seed=38)
+    g = Game(PLAYERS, config={"rules": {"beansPerResource": 20, "gambleMode": 1,
+                                        "gambleDevForBeans": 1}}, seed=38)
     auto_setup(g)
     g.players["A"]["dev"][C.DEV_KNIGHT] = 2
     g.players["A"]["dev_new"][C.DEV_MONOPOLY] = 1
@@ -955,7 +956,8 @@ def dealer_tipping_and_messages():
     assert g.players["A"]["beans"] == 6
     assert g.bj_tips == 4
     assert g._bj("A")["mood"] == "thankful"
-    assert "thank" in g.bj_message.lower() or "kind" in g.bj_message.lower() or "bless" in g.bj_message.lower()
+    grateful = ("thank", "kind", "bless", "generous", "favor")  # any of the tip lines
+    assert any(w in g.bj_message.lower() for w in grateful), g.bj_message
     # can't tip beans you don't have
     expect_error(lambda: g.apply("A", {"type": "bj_tip", "amount": 100}), "only have")
     # a settled hand sets a dealer line + mood
@@ -1026,6 +1028,251 @@ def dev_deck_multiplier():
     assert len(g4.deck) == 100
     assert Counter(g4.deck)[C.DEV_KNIGHT] == 14 * 4  # proportions preserved
     expect_error(lambda: Game(PLAYERS, config={"rules": {"devDeckMultiplier": 99}}), "between")
+
+
+# --------------------------------------------- wave 5: ports, chat, outward
+@test
+def ports_extend_outward_from_land():
+    import math
+    geo = GEOMETRY
+    for port in geo["ports"]:
+        e = geo["edges"][port["edge"]]
+        assert e["coastal"], "standard ports must be coastal"
+        h = geo["hexes"][e["hexes"][0]]
+        vs = geo["vertices"]
+        mx = (vs[e["v1"]]["x"] + vs[e["v2"]]["x"]) / 2.0
+        my = (vs[e["v1"]]["y"] + vs[e["v2"]]["y"]) / 2.0
+        d_mid = math.hypot(mx - h["cx"], my - h["cy"])
+        d_port = math.hypot(port["x"] - h["cx"], port["y"] - h["cy"])
+        # marker pushed outward along the land normal, well clear of the tile
+        assert d_port > d_mid + 30, "port hugs the tile (%.1f vs %.1f)" % (d_port, d_mid)
+
+
+@test
+def ports_pinned_to_edges():
+    import random
+    from engine import maps
+    spec = {"radius": 1, "portsEdges": [
+        {"q": 1, "r": 0, "dir": 0, "type": "wood"},
+        {"q": 0, "r": -1, "dir": 4, "type": "3:1"},
+    ]}
+    board = maps.resolve(spec, random.Random(1))
+    ports = board["geo"]["ports"]
+    assert len(ports) == 2
+    assert sorted(p["type"] for p in ports) == ["3:1", "wood"]
+    for p in ports:
+        assert board["geo"]["edges"][p["edge"]]["coastal"]
+    # inland edge rejected (centre tile of a radius-1 board has no coast)
+    expect_map_error(lambda: maps.resolve(
+        {"radius": 1, "portsEdges": [{"q": 0, "r": 0, "dir": 0, "type": "wood"}]},
+        random.Random(1)), "coastal")
+    # off-board tile rejected at validation time
+    expect_map_error(lambda: maps.validate(
+        {"radius": 1, "portsEdges": [{"q": 9, "r": 9, "dir": 0, "type": "wood"}]}),
+        "not on the board")
+    # bad dir rejected
+    expect_map_error(lambda: maps.validate(
+        {"radius": 1, "portsEdges": [{"q": 1, "r": 0, "dir": 7, "type": "wood"}]}), "0-5")
+
+
+@test
+def dealer_chat_replies():
+    g = Game(PLAYERS, seed=42)
+    auto_setup(g)
+    g.apply("A", {"type": "bj_chat", "text": "hello!"})
+    assert len(g.bj_chat) == 2
+    assert g.bj_chat[0]["from"] == "A" and g.bj_chat[1]["from"] == "dealer"
+    assert len(g.bj_chat[1]["text"]) > 0
+    # live strategy advice references a real action
+    g.players["A"]["beans"] = 50
+    g.bj_shoe = ["2C"] * 60 + ["7S", "9H", "6D", "10C"]  # player 16 vs dealer 10
+    g.bj_seen = []
+    g.apply("A", {"type": "bj_bet", "amount": 1})
+    g.apply("A", {"type": "bj_chat", "text": "should I hit?"})
+    advice = g.bj_chat[-1]["text"].lower()
+    assert any(w in advice for w in ("hit", "stand", "split", "double")), advice
+    # empty chat rejected; long chat trimmed
+    expect_error(lambda: g.apply("A", {"type": "bj_chat", "text": "   "}), "something")
+    for i in range(25):
+        g.apply("A", {"type": "bj_chat", "text": "chatter %d" % i})
+    assert len(g.bj_chat) == 40
+    # chat is visible in everyone's casino view
+    cb = views.serialize(g, "B")["players"][1]["casino"]
+    assert len(cb["chat"]) == 40
+
+
+# ------------------------------------------ wave 6: gamble mode, gold/bean tiles
+def _bean_gold_game(gamble):
+    spec = {"name": "T", "tiles": [
+        {"q": 0, "r": 0, "terrain": "desert"},
+        {"q": 1, "r": 0, "terrain": "beans", "number": 8},
+        {"q": -1, "r": 0, "terrain": "gold", "number": 6},
+        {"q": 0, "r": 1, "terrain": "forest", "number": 5},
+        {"q": 0, "r": -1, "terrain": "fields", "number": 9}]}
+    rules = {"gambleMode": 1, "gambleDevForBeans": 1} if gamble else {}
+    g = Game(PLAYERS, config={"map": spec, "rules": rules}, seed=1)
+    auto_setup(g)
+    bean = next(h for h, hx in g.hexes.items() if hx["terrain"] == "beans")
+    gold = next(h for h, hx in g.hexes.items() if hx["terrain"] == "gold")
+    g.buildings.clear()
+    g.buildings[g.geo["hex_vertices"][bean][0]] = {"type": "city", "owner": "A"}
+    g.buildings[g.geo["hex_vertices"][gold][0]] = {"type": "settlement", "owner": "B"}
+    g.robber_hex = next(h for h in g.hexes if h not in (bean, gold))
+    g.players["A"]["beans"] = 0
+    g.players["B"]["resources"] = {r: 0 for r in C.RESOURCES}
+    return g, bean, gold
+
+
+@test
+def bean_tile_pays_beans_in_gamble_mode():
+    g, bean, gold = _bean_gold_game(gamble=True)
+    g._produce(8)
+    assert g.players["A"]["beans"] == C.BEAN_TILE_PAYOUT * 2  # a city pays double = 10
+    # without gamble mode bean tiles are inert
+    g2, b2, _ = _bean_gold_game(gamble=False)
+    g2._produce(8)
+    assert g2.players["A"]["beans"] == 0
+
+
+@test
+def gold_field_yields_a_random_resource():
+    g, bean, gold = _bean_gold_game(gamble=True)
+    g._produce(6)
+    assert sum(g.players["B"]["resources"].values()) == 1  # settlement = 1 random card
+    assert all(r in C.RESOURCES for r in g.players["B"]["resources"])
+
+
+@test
+def gamble_gates_dev_cashing_and_tip_count():
+    g = Game(PLAYERS, seed=43)
+    auto_setup(g)
+    g.players["A"]["dev"][C.DEV_KNIGHT] = 1
+    g.players["A"]["beans"] = 100
+    expect_error(lambda: g.apply("A", {"type": "convert_dev_to_beans", "cards": {"knight": 1}}), "gamble")
+    g.apply("A", {"type": "bj_tip", "amount": 30})
+    assert g.bj_count_bias == 0.0  # no count bias outside gamble mode
+    # with gamble mode on
+    g2 = Game(PLAYERS, config={"rules": {"gambleMode": 1, "gambleDevForBeans": 1}}, seed=43)
+    auto_setup(g2)
+    g2.players["A"]["dev"][C.DEV_KNIGHT] = 2
+    g2.players["A"]["beans"] = 100
+    g2.apply("A", {"type": "convert_dev_to_beans", "cards": {"knight": 2}})
+    assert g2.players["A"]["beans"] == 100 + 2 * (g2.beans_per_resource // 2)
+    g2.apply("A", {"type": "bj_tip", "amount": 30})
+    assert abs(g2.bj_count_bias - 0.30) < 1e-9
+
+
+@test
+def scenario_presets_all_resolve():
+    import random
+    from engine import maps
+    presets = maps.list_presets()
+    assert len(presets) >= 12  # a broad catalog
+    for p in presets:
+        board = maps.resolve({"preset": p["id"]}, random.Random(5))
+        hexes = board["geo"]["hexes"]
+        assert len(hexes) == p["tiles"]
+        assert board["robber_hex"] in board["hexes"]
+        # every producing tile carries a number; deserts don't
+        for hid, hx in board["hexes"].items():
+            if hx["terrain"] == C.TERRAIN_DESERT:
+                assert hx["number"] is None
+            else:
+                assert hx["number"] is not None
+
+
+@test
+def disconnected_island_geometry_is_sane():
+    import random
+    from engine import maps
+    board = maps.resolve({"preset": "fourislands"}, random.Random(2))
+    geo = board["geo"]
+    # every edge references valid vertices; ports sit on coastal edges
+    nv = len(geo["vertices"])
+    for e in geo["edges"]:
+        assert 0 <= e["v1"] < nv and 0 <= e["v2"] < nv
+    for port in geo["ports"]:
+        assert geo["edges"][port["edge"]]["coastal"]
+
+
+# ------------------------------------------------- wave 6: review-fix regressions
+@test
+def red_numbers_never_adjacent_on_big_boards():
+    import random
+    from engine import maps
+    for preset in ("large", "huge", "colossal"):
+        for seed in range(8):
+            b = maps.resolve({"preset": preset}, random.Random(seed))
+            adj = maps._hex_adjacency(b["geo"])
+            number_of = {h: hx["number"] for h, hx in b["hexes"].items() if hx["number"]}
+            assert maps._red_numbers_ok(number_of, adj), "%s seed %d has adjacent reds" % (preset, seed)
+
+
+@test
+def explicit_deserts_zero_is_honoured():
+    import random
+    from engine import maps
+    b = maps.resolve({"radius": 3, "deserts": 0}, random.Random(1))
+    assert not any(hx["terrain"] == C.TERRAIN_DESERT for hx in b["hexes"].values())
+    # a tiny board still leaves a producing tile (no all-desert)
+    b1 = maps.resolve({"axials": [[0, 0]]}, random.Random(1))
+    assert list(b1["hexes"].values())[0]["terrain"] != C.TERRAIN_DESERT
+
+
+@test
+def dev_cash_rules_min_one_and_no_vp():
+    g = Game(PLAYERS, config={"rules": {"beansPerResource": 1, "gambleMode": 1,
+                                        "gambleDevForBeans": 1}}, seed=1)
+    auto_setup(g)
+    g.players["A"]["dev"][C.DEV_KNIGHT] = 2
+    g.apply("A", {"type": "convert_dev_to_beans", "cards": {"knight": 2}})
+    assert g.players["A"]["beans"] == 2  # max(1, 1//2) = 1 per card
+    # victory point cards can never be cashed
+    g.players["A"]["dev"][C.DEV_VICTORY_POINT] = 1
+    expect_error(lambda: g.apply("A", {"type": "convert_dev_to_beans",
+                 "cards": {"victory_point": 1}}), "victory point")
+    assert g.players["A"]["dev"][C.DEV_VICTORY_POINT] == 1  # card kept
+
+
+@test
+def dealer_hole_card_not_leaked_in_seen():
+    g = Game(PLAYERS, seed=44)
+    auto_setup(g)
+    g.players["A"]["beans"] = 50
+    g.bj_shoe = ["2C"] * 60 + ["7S", "9H", "6D", "KC"]  # dealer hole = 6D
+    g.bj_seen = []
+    g.apply("A", {"type": "bj_bet", "amount": 1})
+    bj = g._bj("A")
+    if bj["dealerHidden"]:
+        hole = bj["dealer"][1]
+        assert hole in g.bj_seen                       # it IS dealt (in the raw shoe history)
+        pub = views.serialize(g, "A")["players"][0]["casino"]["seen"]
+        assert g.bj_seen.count(hole) - pub.count(hole) == 1  # exactly one copy hidden from the count
+
+
+@test
+def production_log_reflects_actual_grants():
+    g = Game(PLAYERS, seed=8)
+    auto_setup(g)
+    hexes = list(g.hexes.keys())
+    hA = hexes[0]
+    g.hexes[hA].update(resource="wood", terrain="forest", number=4)
+    robber = next(h for h in hexes if h != hA)
+    for h in hexes:
+        if h not in (hA,):
+            g.hexes[h]["number"] = 5
+    g.robber_hex = robber
+    vA = g.geo["hex_vertices"][hA][0]
+    g.buildings.clear()
+    g.buildings[vA] = {"type": "city", "owner": "A"}  # owed 2 wood
+    g.bank["wood"] = 1                                 # but bank only has 1
+    for pid in g.order:
+        g.players[pid]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.log = []
+    g._produce(4)
+    # single claimant short -> A actually gets 1 (min(2, bank=1)); the log must say 1, not 2
+    assert g.players["A"]["resources"]["wood"] == 1
+    assert "1 wood" in g.log[-1] and "2 wood" not in g.log[-1]
 
 
 # --------------------------------------------------------------------- runner

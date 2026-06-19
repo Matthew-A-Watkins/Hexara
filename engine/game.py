@@ -13,6 +13,7 @@ import random
 
 from . import casino
 from . import constants as C
+from . import dealer_chat
 from . import maps
 
 
@@ -35,6 +36,8 @@ _RULE_SPECS = {
     "beansPerResource": (C.BEANS_PER_RESOURCE, 1, 1000),
     "beansPerVictoryPoint": (C.BEANS_PER_VP, 1, 100000),
     "devDeckMultiplier": (1, 1, 20),   # 1 = the standard 25-card deck
+    "gambleMode": (0, 0, 1),           # boolean: casino/main-game integration
+    "gambleDevForBeans": (0, 0, 1),    # boolean sub-option: cash dev cards for beans
 }
 
 
@@ -140,7 +143,9 @@ class Game:
         self.bj_shoe = None
         self.bj_seen = []
         self.bj_tips = 0          # total beans tipped to the dealer (a bean sink)
+        self.bj_count_bias = 0.0  # gamble mode: tips nudge the running count
         self.bj_message = "Welcome to the table! Place a bet."
+        self.bj_chat = []         # shared table talk: {"from", "name", "text"}
         self.log = []
         self._log("Game started. Place your first settlement.")
 
@@ -161,6 +166,8 @@ class Game:
         self.beans_per_resource = r["beansPerResource"]
         self.beans_per_vp = r["beansPerVictoryPoint"]
         self.dev_deck_multiplier = r["devDeckMultiplier"]
+        self.gamble_mode = bool(r["gambleMode"])
+        self.gamble_dev_for_beans = bool(r["gambleDevForBeans"])
 
     def rules_view(self):
         """The active rule numbers, for serialization to clients."""
@@ -174,6 +181,8 @@ class Game:
             "beansPerResource": self.beans_per_resource,
             "beansPerVictoryPoint": self.beans_per_vp,
             "devDeckMultiplier": self.dev_deck_multiplier,
+            "gambleMode": 1 if self.gamble_mode else 0,
+            "gambleDevForBeans": 1 if self.gamble_dev_for_beans else 0,
         }
 
     # ------------------------------------------------------------------ setup
@@ -371,6 +380,7 @@ class Game:
             "bj_split": self._h_bj_split,
             "bj_surrender": self._h_bj_surrender,
             "bj_tip": self._h_bj_tip,
+            "bj_chat": self._h_bj_chat,
         }.get(action.get("type"))
         self._require(handler is not None, "Unknown action: %r" % action.get("type"))
         handler(pid, action)
@@ -439,10 +449,31 @@ class Game:
 
     def _produce(self, roll):
         gains = {pid: _empty_hand() for pid in self.order}
+        granted = {pid: _empty_hand() for pid in self.order}  # what was actually paid out
+        bean_gains = {pid: 0 for pid in self.order}
         for hid, hx in self.hexes.items():
-            if hx["number"] != roll or hid == self.robber_hex or not hx["resource"]:
+            if hx["number"] != roll or hid == self.robber_hex:
+                continue
+            terrain = hx["terrain"]
+            if terrain == C.TERRAIN_BEANS:
+                if not self.gamble_mode:
+                    continue  # bean tiles only pay out in Gamble mode
+                for vid in self.geo["hex_vertices"][hid]:
+                    b = self.buildings.get(vid)
+                    if b:
+                        bean_gains[b["owner"]] += C.BEAN_TILE_PAYOUT * (2 if b["type"] == "city" else 1)
+                continue
+            if terrain == C.TERRAIN_GOLD:
+                # Gold field: each building draws a random resource (city = 2).
+                for vid in self.geo["hex_vertices"][hid]:
+                    b = self.buildings.get(vid)
+                    if b:
+                        for _ in range(2 if b["type"] == "city" else 1):
+                            gains[b["owner"]][self.rng.choice(C.RESOURCES)] += 1
                 continue
             res = hx["resource"]
+            if not res:
+                continue
             for vid in self.geo["hex_vertices"][hid]:
                 b = self.buildings.get(vid)
                 if b:
@@ -458,18 +489,26 @@ class Game:
                 for p, n in owed:
                     self._gain(p, res, n)
                     self.bank[res] -= n
+                    granted[p][res] += n
             elif len(owed) == 1:
                 p, n = owed[0]
                 give = min(n, self.bank[res])
                 self._gain(p, res, give)
                 self.bank[res] -= give
+                granted[p][res] += give
             # else: shortage with multiple claimants -> nobody gets this resource
+        for pid, amt in bean_gains.items():
+            if amt:
+                self.players[pid]["beans"] += amt
         for pid in self.order:
-            got = {r: gains[pid][r] for r in C.RESOURCES if gains[pid][r] > 0}
-            if got:
-                produced_lines.append("%s got %s" % (
-                    self._name(pid),
-                    ", ".join("%d %s" % (n, r) for r, n in got.items())))
+            # Log what was ACTUALLY granted, not the gross intended amount (the
+            # bank-shortage rules can grant less, or nothing).
+            got = {r: granted[pid][r] for r in C.RESOURCES if granted[pid][r] > 0}
+            parts = ["%d %s" % (n, r) for r, n in got.items()]
+            if bean_gains[pid]:
+                parts.append("%d beans" % bean_gains[pid])
+            if parts:
+                produced_lines.append("%s got %s" % (self._name(pid), ", ".join(parts)))
         if produced_lines:
             self._log("; ".join(produced_lines) + ".")
         else:
@@ -845,14 +884,19 @@ class Game:
 
     def _h_convert_dev_to_beans(self, pid, action):
         """Sell development cards for beans at half the resource rate
-        (1 dev card = beansPerResource/2 = 10 beans by default)."""
+        (1 dev card = beansPerResource/2 = 10 beans by default). Only when the
+        host has turned this on inside Gamble mode."""
         self._require_casino(pid)
+        self._require(self.gamble_mode and self.gamble_dev_for_beans,
+                      "Cashing dev cards for beans is off (enable it in Gamble mode).")
         cards = action.get("cards") or {}
         p = self.players[pid]
         want = {}
         total = 0
         for k, n in cards.items():
             self._require(k in C.DEV_CARD_COUNTS, "Unknown development card.")
+            # Victory-point cards are worth a real VP — never cash those away.
+            self._require(k != C.DEV_VICTORY_POINT, "Victory point cards can't be cashed in.")
             n = int(n)
             self._require(n >= 0, "Whole cards only.")
             if n:
@@ -867,7 +911,7 @@ class Game:
             rest = n - take
             if rest:
                 p["dev_new"][k] -= rest
-        per_card = self.beans_per_resource // 2
+        per_card = max(1, self.beans_per_resource // 2)  # always at least 1 bean
         gained = total * per_card
         p["beans"] += gained
         self._log("%s cashed %d development card(s) in for %d beans." % (self._name(pid), total, gained))
@@ -893,6 +937,7 @@ class Game:
         if casino.needs_shuffle(self.bj_shoe):
             self.bj_shoe = casino.new_shoe(self.rng)
             self.bj_seen = []
+            self.bj_count_bias = 0.0  # the count resets with the shoe
             self.bj_message = "Fresh shoe! Six decks, shuffled up."
         card = self.bj_shoe.pop()
         self.bj_seen.append(card)
@@ -1077,11 +1122,29 @@ class Game:
         self.players[pid]["beans"] -= amount
         self.bj_tips += amount
         self._bj(pid)["mood"] = "thankful"
+        extra = ""
+        if self.gamble_mode:
+            # A grateful dealer reads the count more kindly for you: the displayed
+            # running count climbs (a friendly read — the real shoe is unchanged).
+            self.bj_count_bias += amount * 0.01
+            extra = " The count's looking friendlier already (+%.2f)..." % (amount * 0.01)
         self.bj_message = self.rng.choice([
             "Oh, %s, you shouldn't have! Thank you kindly! 💛" % self._name(pid),
             "A tip?! You're too generous, %s — may the cards favor you!" % self._name(pid),
-            "Bless you, %s! Tips keep this old dealer smiling. 🎩" % self._name(pid)])
+            "Bless you, %s! Tips keep this old dealer smiling. 🎩" % self._name(pid)]) + extra
         self._log("%s tipped the dealer %d beans." % (self._name(pid), amount))
+
+    def _h_bj_chat(self, pid, action):
+        """Table talk: the player says something, the dealer answers in kind.
+        Pure pattern-matching (engine.dealer_chat) — no GPU, no network."""
+        self._require_casino(pid)
+        text = str(action.get("text") or "").strip()[:200]
+        self._require(bool(text), "Say something first.")
+        self.bj_chat.append({"from": pid, "name": self._name(pid), "text": text})
+        self.bj_chat.append({"from": "dealer", "name": "Dealer",
+                             "text": dealer_chat.reply(self, pid, text)})
+        if len(self.bj_chat) > 40:
+            self.bj_chat = self.bj_chat[-40:]
 
     def _bj_settle(self, hand, dealer_total, dealer_bj):
         """Return the beans paid back for this hand (0 = lost the wager)."""

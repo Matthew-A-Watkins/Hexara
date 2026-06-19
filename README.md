@@ -61,17 +61,28 @@ Players**.
 Everything below is chosen by the host in the lobby and shared live with the
 table; non-hosts see a read-only summary.
 
-- **Presets ("DLC-style" layouts):** Standard Island (19), Small Cove (7),
-  Greater Isle (37), Continent (61) and an irregular Frontier island — all
-  played with the base rules.
+- **Presets (Catan-style scenarios):** a broad catalog played with the base
+  rules — sizes from Small Cove (7) up to Colossus (91), the Greater Catan
+  (5–6) board, multi-island archipelagos (Heading for New Shores, The Four
+  Islands, The Pirate Islands, Twin Continents), gold-rich boards (Golden
+  Rivers, Treasure Isles), Through the Desert, and the bean-studded High
+  Roller's Isle. New terrains: **gold fields** (yield a random resource) and
+  **bean tiles** (pay beans in Gamble mode).
 - **Any size:** pick *Random — choose size* and set a board radius (1–5).
 - **Custom maps:** open the **Map Editor** to draw any board. A visual canvas
   (click hexes to paint terrain, stamp number tokens, place the robber, carve the
   island shape) stays in sync with a live **JSON** definition you can edit or
-  paste directly. Ports are auto-placed around the coast (or turned off).
+  paste directly. Ports auto-place around the coast, can be turned off, or —
+  with the **Port brushes** — pinned to exact coastal edges (3:1 or any 2:1;
+  click the same edge again to remove).
 - **Rule tuning:** victory points to win, the discard threshold, max
   roads/settlements/cities, the bank size, the casino bean rates, and the
   **development-deck size** (×25 cards).
+- **Gamble mode:** a toggle that ties the casino into the main game — **bean
+  tiles** pay out when their number rolls (5 per settlement, 10 per city),
+  **tipping** the dealer warms the running count (+tip×0.01), and an optional
+  sub-toggle lets you **cash development cards for beans** so you can alternate
+  building and gambling.
 
 Maps and rules are validated server-side, so an illegal board or value is
 refused with a clear message before the game can start. The full format is in
@@ -87,8 +98,14 @@ refused with a clear message before the game can start. The full format is in
   odds per total) and, once the game ends, who accumulated the most of each
   resource.
 - **Casino** — a 🎰 shared table you can play any time, even on others' turns,
-  hosted by an animated **8-bit dealer** who deals the cards, reacts to your
-  run (congratulates wins, sympathizes with losses) and beams when you **tip**.
+  hosted by an animated **8-bit dealer** (switch between **Marv** and **Bella**)
+  who deals the cards, reacts to your run (congratulates wins, sympathizes with
+  losses), beams when you **tip**, and **chats back**: ask about rates, your
+  hand ("should I hit?" gets real basic-strategy advice), or just talk — the
+  replies come from a tiny rule-based brain in the engine (CPU-only, no GPU, no
+  network). The counting aid shows the live **Hi-Lo running & true count** with
+  a per-rank tally, and rolling a 7 boots you from the table to go place the
+  robber.
   Everyone shares one **6-deck shoe** with ~5-deck penetration, so card counting
   is real and communal — every dealt card is shown, and you can see the whole
   table's hands. 1-bean minimum (type any bet or hit **Max**), naturals pay 3:2,

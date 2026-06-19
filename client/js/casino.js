@@ -40,6 +40,8 @@
     _lastBjState: null,
 
     open: function () {
+      var self = this;
+      try { this._sprite = localStorage.getItem("hexara.dealer") || "m"; } catch (e) { this._sprite = "m"; }
       var modal = el("div", "modal modal-wide casino-modal");
       modal.appendChild(el("h2", null, "🎰 Casino"));
       this._balance = el("div", "casino-balance");
@@ -48,9 +50,23 @@
       // Felt table with the persistent dealer canvas + speech bubble.
       var felt = el("div", "bj-felt");
       var dealerWrap = el("div", "dealer-wrap");
+      var dcol = el("div", "dealer-col");
       this._canvas = el("canvas", "dealer-canvas");
       this._canvas.width = 132; this._canvas.height = 132;
-      dealerWrap.appendChild(this._canvas);
+      dcol.appendChild(this._canvas);
+      this._dealerTag = el("div", "dealer-name", this._dealerName());
+      dcol.appendChild(this._dealerTag);
+      var swap = el("button", "btn btn-sm dealer-swap", "↺ Switch dealer");
+      swap.title = "Swap who's working the table";
+      swap.addEventListener("click", function () {
+        self._sprite = self._sprite === "f" ? "m" : "f";
+        try { localStorage.setItem("hexara.dealer", self._sprite); } catch (e) {}
+        if (self._dealerTag) self._dealerTag.textContent = self._dealerName();
+        self._chatSig = null;  // re-render chat under the new dealer's name
+        self.refresh();
+      });
+      dcol.appendChild(swap);
+      dealerWrap.appendChild(dcol);
       this._bubble = el("div", "dealer-bubble");
       dealerWrap.appendChild(this._bubble);
       felt.appendChild(dealerWrap);
@@ -65,6 +81,32 @@
 
       this._controls = el("div", "bj-area");
       modal.appendChild(this._controls);
+
+      // Table talk: the input is built once and never re-rendered, so typing
+      // is never interrupted by state pushes — only the message log updates.
+      var chatSec = el("div", "bj-chat");
+      chatSec.appendChild(el("div", "bj-label", "💬 Table talk — chat with the dealer"));
+      this._chatLog = el("div", "chat-log");
+      chatSec.appendChild(this._chatLog);
+      var crow = el("div", "chat-row");
+      this._chatInput = el("input", "chat-input");
+      this._chatInput.type = "text";
+      this._chatInput.maxLength = 200;
+      this._chatInput.placeholder = "Say something to the dealer…";
+      var sendB = el("button", "btn casino-btn chat-send", "Send");
+      function sendChat() {
+        var v = self._chatInput.value.trim();
+        if (!v) return;
+        self._chatInput.value = "";
+        if (window.Sound) Sound.play("card");
+        Net.sendAction({ type: "bj_chat", text: v });
+      }
+      sendB.addEventListener("click", sendChat);
+      this._chatInput.addEventListener("keydown", function (e) { if (e.key === "Enter") sendChat(); });
+      crow.appendChild(this._chatInput);
+      crow.appendChild(sendB);
+      chatSec.appendChild(crow);
+      modal.appendChild(chatSec);
 
       var actions = el("div", "modal-actions");
       var close = el("button", "btn", "Close");
@@ -103,6 +145,18 @@
       var G = 18, px = Math.floor(Math.min(W, H) / G);
       var ox = Math.floor((W - px * G) / 2), oy = Math.floor((H - px * G) / 2);
       function R(x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(ox + x * px, oy + y * px, w * px, h * px); }
+      var blink = (t % 3000) < 110;
+      if (this._sprite === "f") this._galPixels(R, mood, blink, t);
+      else this._guyPixels(R, mood, blink, t);
+      // floating hearts when thankful (both dealers)
+      if (mood === "thankful") {
+        var hy = 4 - ((t / 320) % 7);
+        R(2, Math.round(hy), 1, 1, "#e8527a"); R(15, Math.round(hy + 1.5) % 7, 1, 1, "#e8527a");
+      }
+    },
+
+    // Marv: visor, bowtie, honest mustache-free service.
+    _guyPixels: function (R, mood, blink, t) {
       // head + ears
       R(4, 4, 10, 10, "#f0c090");
       R(4, 4, 10, 1, "#d8a874");
@@ -112,8 +166,6 @@
       R(3, 2, 12, 1, "#17593a");
       R(3, 3, 12, 1, "#1f6b43");
       R(2, 4, 14, 1, "#2e9c63");
-      // eyes (blink + mood)
-      var blink = (t % 3000) < 110;
       this._drawEyes(R, mood, blink);
       this._drawMouth(R, mood);
       if (mood === "thankful" || mood === "excited") { R(4, 10, 1, 1, "#f0a0a0"); R(13, 10, 1, 1, "#f0a0a0"); }
@@ -126,10 +178,38 @@
         var arm = Math.round(Math.sin(t / 110));
         R(14, 12 + arm, 3, 1, "#f3e6c8"); R(16, 12 + arm, 1, 1, "#f0c090");
       }
-      // floating hearts when thankful
-      if (mood === "thankful") {
-        var hy = 4 - ((t / 320) % 7);
-        R(2, Math.round(hy), 1, 1, "#e8527a"); R(15, Math.round(hy + 1.5) % 7, 1, 1, "#e8527a");
+    },
+
+    // Bella: flowing hair, lashes, red lips, earrings, a flower and a wine dress.
+    _galPixels: function (R, mood, blink, t) {
+      var HAIR = "#e8c25a", SKIN = "#f5cfa6", GOLD = "#e3b23c", PINK = "#e8527a";
+      // flowing hair: crown, long sides, tips past the shoulders
+      R(3, 2, 12, 2, HAIR);
+      R(2, 3, 3, 10, HAIR); R(13, 3, 3, 10, HAIR);
+      R(2, 13, 2, 2, HAIR); R(14, 13, 2, 2, HAIR);
+      // face + side-swept bangs
+      R(5, 4, 8, 10, SKIN);
+      R(5, 3, 8, 1, HAIR); R(5, 4, 2, 1, HAIR); R(11, 4, 2, 1, HAIR);
+      // flower tucked in the hair
+      R(13, 2, 1, 1, PINK); R(12, 3, 1, 1, PINK); R(14, 3, 1, 1, PINK); R(13, 4, 1, 1, PINK);
+      R(13, 3, 1, 1, GOLD);
+      // lashes above open eyes
+      if (!blink) { R(6, 5, 2, 1, "#1a1a1a"); R(10, 5, 2, 1, "#1a1a1a"); }
+      this._drawEyes(R, mood, blink);
+      // blush + red lips
+      R(5, 9, 1, 1, "#f0a0a0"); R(12, 9, 1, 1, "#f0a0a0");
+      this._drawMouth(R, mood, "#d12a45");
+      // earrings at the hairline
+      R(4, 11, 1, 1, GOLD); R(13, 11, 1, 1, GOLD);
+      // neck + wine dress with a neckline and pendant
+      R(7, 14, 4, 1, "#ecbf92");
+      R(3, 15, 12, 3, "#8e2440");
+      R(8, 15, 2, 1, "#ecbf92");
+      R(9, 16, 1, 1, GOLD);
+      // dealing arm waggle (dress sleeve)
+      if (mood === "dealing") {
+        var arm = Math.round(Math.sin(t / 110));
+        R(14, 12 + arm, 3, 1, "#8e2440"); R(16, 12 + arm, 1, 1, SKIN);
       }
     },
     _drawEyes: function (R, mood, blink) {
@@ -142,11 +222,12 @@
       if (mood === "sad") { R(6, 6, 2, 1, "#d8a874"); R(10, 6, 2, 1, "#d8a874"); R(6, 7, 2, 1, "#1a1a1a"); R(10, 7, 2, 1, "#1a1a1a"); return; }
       R(6, 6, 1, 2, "#1a1a1a"); R(11, 6, 1, 2, "#1a1a1a");
     },
-    _drawMouth: function (R, mood) {
-      if (mood === "excited") { R(7, 10, 4, 2, "#7d231a"); R(8, 11, 2, 1, "#fff"); return; }
-      if (mood === "happy" || mood === "thankful" || mood === "dealing") { R(6, 11, 1, 1, "#7d231a"); R(7, 12, 4, 1, "#7d231a"); R(11, 11, 1, 1, "#7d231a"); return; }
-      if (mood === "sad") { R(6, 12, 1, 1, "#7d231a"); R(7, 11, 4, 1, "#7d231a"); R(11, 12, 1, 1, "#7d231a"); return; }
-      R(7, 11, 4, 1, "#7d231a");
+    _drawMouth: function (R, mood, col) {
+      col = col || "#7d231a";
+      if (mood === "excited") { R(7, 10, 4, 2, col); R(8, 11, 2, 1, "#fff"); return; }
+      if (mood === "happy" || mood === "thankful" || mood === "dealing") { R(6, 11, 1, 1, col); R(7, 12, 4, 1, col); R(11, 11, 1, 1, col); return; }
+      if (mood === "sad") { R(6, 12, 1, 1, col); R(7, 11, 4, 1, col); R(11, 12, 1, 1, col); return; }
+      R(7, 11, 4, 1, col);
     },
 
     /* ===================== refresh ===================== */
@@ -183,7 +264,35 @@
       var ae = document.activeElement;
       var typing = ae && ae.classList && ae.classList.contains("stepper-input") && this._controls.contains(ae);
       if (!typing) this._renderControls(me, c);
+      this._renderChat(c);
       this._bjSounds(c);
+    },
+
+    _dealerName: function () {
+      return this._sprite === "f" ? "Bella" : "Marv";
+    },
+
+    _renderChat: function (c) {
+      var log = this._chatLog;
+      if (!log) return;
+      var msgs = c.chat || [];
+      var sig = msgs.length + "|" + (msgs.length ? msgs[msgs.length - 1].text : "");
+      if (this._chatSig === sig) return;  // cheap diff: only rebuild on change
+      this._chatSig = sig;
+      clear(log);
+      if (!msgs.length) {
+        log.appendChild(el("div", "chat-line dealer",
+          this._dealerName() + ": Talk to me, friend — ask about rates, the count, or what to do with that hand."));
+      }
+      var self = this;
+      msgs.forEach(function (m) {
+        var dealer = m.from === "dealer";
+        var line = el("div", "chat-line" + (dealer ? " dealer" : ""));
+        line.appendChild(el("strong", null, (dealer ? self._dealerName() : m.name) + ": "));
+        line.appendChild(document.createTextNode(m.text));
+        log.appendChild(line);
+      });
+      log.scrollTop = log.scrollHeight;
     },
 
     _isNew: function (key) {
@@ -362,9 +471,37 @@
 
     _seenCards: function (c) {
       var box = el("div", "bj-seen");
-      box.appendChild(el("div", "bj-label", "Cards seen this shoe (" + (c.seen ? c.seen.length : 0) + ") — shared by the whole table"));
+      var seen = c.seen || [];
+      box.appendChild(el("div", "bj-label", "Cards seen this shoe (" + seen.length + ") — shared by the whole table"));
+
+      // The actual count, computed Hi-Lo: 2-6 = +1, 7-9 = 0, 10/J/Q/K/A = -1.
+      var run = 0, tally = {};
+      seen.forEach(function (card) {
+        var r = card.slice(0, -1);
+        tally[r] = (tally[r] || 0) + 1;
+        if (r === "A" || r === "K" || r === "Q" || r === "J" || r === "10") run -= 1;
+        else if (parseInt(r, 10) >= 2 && parseInt(r, 10) <= 6) run += 1;
+      });
+      var decksLeft = (c.shoeLeft || 0) / 52;
+      var bias = c.countBias || 0;  // gamble mode: tips warm the count
+      var runB = run + bias;
+      var trueC = runB / Math.max(decksLeft, 0.5);
+      function sgn(n) { return (n >= 0 ? "+" : "") + n; }
+      function sgnf(n) { return (n >= 0 ? "+" : "") + n.toFixed(2); }
+      box.appendChild(el("div", "count-summary",
+        "Running count: " + (bias ? sgnf(runB) + " (" + sgn(run) + " cards " + sgnf(bias) + " tip)" : sgn(run)) +
+        "  ·  True count: " + (trueC >= 0 ? "+" : "") + trueC.toFixed(1) +
+        "  ·  " + decksLeft.toFixed(1) + " decks left"));
+
+      // Per-rank tally of everything that's hit the felt.
+      var tr = el("div", "rank-tally");
+      ["A", "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2"].forEach(function (r) {
+        tr.appendChild(el("span", "seen-chip", r + " ×" + (tally[r] || 0)));
+      });
+      box.appendChild(tr);
+
       var row = el("div", "bj-seen-row");
-      (c.seen || []).forEach(function (card) {
+      seen.forEach(function (card) {
         var rank = card.slice(0, -1), suit = card.slice(-1);
         var red = suit === "H" || suit === "D";
         row.appendChild(el("span", "seen-chip" + (red ? " red" : ""), rank + (SUIT[suit] || "")));
@@ -394,9 +531,12 @@
       resBtns.appendChild(buyBtn);
       wrap.appendChild(resBtns);
 
-      // dev cards -> beans
-      var owned = DEV_ORDER.filter(function (d) { return (c.dev[d] || 0) + (c.devNew[d] || 0) > 0; });
-      if (owned.length) {
+      // dev cards -> beans (only when enabled in Gamble mode; VP cards excluded —
+      // they're worth a real point and can't be cashed).
+      var owned = DEV_ORDER.filter(function (d) {
+        return d !== "victory_point" && (c.dev[d] || 0) + (c.devNew[d] || 0) > 0;
+      });
+      if (c.canCashDev && owned.length) {
         wrap.appendChild(el("h4", null, "Development cards · " + c.beansPerDev + " beans each"));
         var devRow = el("div", "dev-cash-row");
         owned.forEach(function (d) {

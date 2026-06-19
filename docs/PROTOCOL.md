@@ -75,7 +75,9 @@ You do **not** read game state from the action response — wait for the next po
   "bankPerResource": 19,    // cards of each resource in the bank (1–400)
   "beansPerResource": 20,   // casino: beans -> 1 resource card / dev card = half this (1–1000)
   "beansPerVictoryPoint": 200, // casino: beans <-> 1 victory point (1–100000)
-  "devDeckMultiplier": 1    // scales the development deck (1 = the standard 25 cards; 1–20)
+  "devDeckMultiplier": 1,   // scales the development deck (1 = the standard 25 cards; 1–20)
+  "gambleMode": 0,          // 0/1: bean tiles pay out, tips warm the count, unlocks dev cashing
+  "gambleDevForBeans": 0    // 0/1 (Gamble mode only): allow cashing dev cards for beans
 }
 ```
 
@@ -90,15 +92,26 @@ standard 19-hex island.
   "radius": 2,                       // 1–5 (radius 2 = 19 hexes); randomly filled
   // -- content mode B: an arbitrary island shape, randomly filled --
   "axials": [ [q, r], ... ],
+  "gold": 0,                         // procedural: # of gold fields (random-resource tiles)
+  "beans": 0,                        // procedural: # of bean tiles (pay beans in Gamble mode)
+  "deserts": null,                   // procedural: desert count override
   // -- content mode C: a fully explicit layout --
   "tiles": [ { "q": 0, "r": 0, "terrain": "forest", "number": 8 }, ... ],
   // -- ports (optional): omit to auto-spread; [] for none; or a type list --
   "ports": [ "3:1", "wheat", "ore", ... ],
+  // -- or pin ports to exact coastal hex edges (what the map editor emits) --
+  // dir 0-5 counts from the east-facing edge, clockwise (toward the southeast).
+  "portsEdges": [ { "q": 2, "r": 0, "dir": 0, "type": "wood" }, ... ],
   "robber": { "q": 0, "r": 0 }       // optional robber start (default: a desert)
 }
 ```
-Terrains: `forest|hills|pasture|fields|mountains|desert`. Number tokens are 2–12
-(never 7); deserts have no number. Bad specs are rejected with a `400`/error.
+Port markers always extend outward away from the owning land tile, so badges
+never overlap the hex artwork.
+Terrains: `forest|hills|pasture|fields|mountains|desert|gold|beans`. `gold` yields
+a random resource when rolled; `beans` pays beans (Gamble mode only). Number
+tokens are 2–12 (never 7); deserts have no number. Bad specs are rejected with a
+`400`/error. Many built-in presets cover Catan-style scenarios (sizes, the 5–6
+board, multi-island archipelagos, gold-rich and bean-themed boards).
 
 ## `GameState` object (per-viewer; opponents' hidden info is masked)
 ```jsonc
@@ -158,13 +171,15 @@ The blackjack table is **shared**: one shoe and `seen` list for the whole room
 play your own hand heads-up against the dealer.
 ```jsonc
 {
-  "beans": 40, "boughtVp": 1, "tips": 5,
+  "beans": 40, "boughtVp": 1, "tips": 5, "countBias": 0.5,  // countBias: Gamble-mode tips warm the count
+  "gambleMode": true, "canCashDev": true,                   // canCashDev: dev cards may be cashed for beans
   "minBet": 1, "beansPerResource": 20, "beansPerVp": 200, "beansPerDev": 10,
   "dev": { "knight": 2, ... }, "devNew": { ... },   // dev cards you can cash in
   // shared table:
-  "shoeLeft": 300, "decks": 6, "seen": ["KS","7S",...],   // every dealt card, so counting works
+  "shoeLeft": 300, "decks": 6, "seen": ["KS","7S",...],   // dealt cards for counting (face-down dealer hole cards are excluded)
   "mood": "happy|sad|excited|thankful|neutral|dealing",   // the 8-bit dealer's mood toward you
   "message": "Nicely done!",                              // the dealer's latest line
+  "chat": [ { "from": "<playerId>|dealer", "name": "Ada", "text": "hi!" }, ... ],  // shared table talk (last 40)
   "canBet": true,
   "seats": [ { "id","name","color","you","state","bet","net",
                "hands": [ { "cards":["AH","KD"], "value":21, "result":"blackjack", "bust":false } ] } ],
@@ -270,6 +285,7 @@ Casino / beans (allowed off-turn, once the game is underway):
 - `{ "type": "bj_hit" }` · `{ "type": "bj_stand" }` · `{ "type": "bj_double" }` · `{ "type": "bj_split" }`
 - `{ "type": "bj_surrender" }`                                    // forfeit opening two cards; half the bet back
 - `{ "type": "bj_tip", "amount": 2 }`                             // tip the dealer (a beans sink; the dealer cheers)
+- `{ "type": "bj_chat", "text": "should I hit?" }`                // table talk: the dealer answers (rule-based, in-process — no GPU/network)
 
 Robber / 7:
 - `{ "type": "discard", "resources": { "wood": 2, "ore": 1 } }`   // sum == mustDiscard
