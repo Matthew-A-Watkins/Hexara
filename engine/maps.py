@@ -16,6 +16,8 @@ the robber's starting tile, ready for :class:`~engine.game.Game`.
 Nothing here knows about networking or rendering.
 """
 
+import math
+
 from . import constants as C
 from . import geometry as geo
 
@@ -82,20 +84,6 @@ def number_pool(n, rng):
     while len(pool) < n:
         pool += base
     return pool[:n]
-
-
-def auto_port_types(n_ports):
-    """A port type list of length ``n_ports`` alternating generic 3:1 ports
-    with one-per-resource 2:1 ports."""
-    res_cycle = [C.WHEAT, C.ORE, C.SHEEP, C.BRICK, C.WOOD]
-    out, ri = [], 0
-    for i in range(n_ports):
-        if i % 2 == 0:
-            out.append(C.PORT_GENERIC)
-        else:
-            out.append(res_cycle[ri % len(res_cycle)])
-            ri += 1
-    return out
 
 
 # ------------------------------------------------------------------- presets
@@ -260,9 +248,8 @@ def validate(spec):
                 raise MapError("'%s' can't be negative." % key)
             out[key] = v
 
-    # Optional procedural overrides. Pinned ports (portsEdges) win; otherwise a
-    # plain radius-2 island keeps the canonical 9-port layout so the standard
-    # game looks exactly as before, and other sizes auto-spread a scaled set.
+    # Ports: pinned edges (portsEdges) or an explicit type list win; otherwise
+    # ports are placed thematically (by tile) after the terrain is known.
     if spec.get("portsEdges"):
         if out.get("axials"):
             coords = set((a[0], a[1]) for a in out["axials"])
@@ -271,8 +258,52 @@ def validate(spec):
         out["portsEdges"] = _validate_port_edges(spec["portsEdges"], coords)
     elif spec.get("ports"):
         out["ports"] = _validate_port_types(spec["ports"])
-    elif out.get("radius") == 2 and "axials" not in out:
-        out["ports"] = list(C.PORT_SEQUENCE)
+    return out
+
+
+def _is_auto_ports(spec):
+    """True when ports aren't pinned/explicit and should be placed thematically."""
+    return not (spec.get("portsEdges") or spec.get("portsExplicit") or spec.get("ports"))
+
+
+def _thematic_ports(board, hexes):
+    """Place ports intentionally, BASED ON THE TILES: each 2:1 resource port sits
+    on a coastal edge of a tile that produces that resource (one per resource),
+    and the rest are generic 3:1 ports — spread evenly around the coast, with the
+    count scaled to the number of land tiles (so islands aren't over-ported).
+    Returns a list of (edge_id, port_type) for geometry.add_edge_ports."""
+    coastal = [e for e in board["edges"] if e["coastal"]]
+    if not coastal:
+        return []
+    vs = board["vertices"]
+
+    def angle(e):  # clockwise around the board centre (screen y grows downward)
+        mx = (vs[e["v1"]]["x"] + vs[e["v2"]]["x"]) / 2.0
+        my = (vs[e["v1"]]["y"] + vs[e["v2"]]["y"]) / 2.0
+        return math.atan2(-my, mx)
+
+    coastal.sort(key=angle, reverse=True)
+    n = len(coastal)
+    n_ports = max(2, min(int(round(len(hexes) / 2.2)), n // 2 or 1))
+
+    # Evenly-spaced coastal edges.
+    chosen, used = [], set()
+    for i in range(n_ports):
+        idx = int(round(i * n / n_ports)) % n
+        while idx in used and len(used) < n:
+            idx = (idx + 1) % n
+        used.add(idx)
+        chosen.append(coastal[idx])
+
+    # Type each by the resource of the land tile it touches (one 2:1 per resource).
+    out, claimed = [], set()
+    for e in chosen:
+        res = C.TERRAIN_RESOURCE.get(hexes[e["hexes"][0]]["terrain"])
+        if res and res not in claimed:
+            claimed.add(res)
+            out.append((e["id"], res))
+        else:
+            out.append((e["id"], C.PORT_GENERIC))
     return out
 
 
@@ -425,11 +456,9 @@ def _build_with_ports(axials, spec, rng, coastal_hint=None):
         return geo.build_geometry(axials, ports_explicit=spec["portsExplicit"])
     if spec.get("ports"):
         return geo.build_geometry(axials, port_types=spec["ports"])
-    # Auto: build once portless to count the coast, then spread a scaled set.
-    bare = geo.build_geometry(axials, port_types=[])
-    coastal = sum(1 for e in bare["edges"] if e["coastal"])
-    n_ports = max(2, round(coastal / 3.3))
-    return geo.build_geometry(axials, port_types=auto_port_types(n_ports))
+    # Auto: build with no ports here; they're placed thematically (by tile) once
+    # the terrain is assigned (see _resolve_*).
+    return geo.build_geometry(axials, port_types=[])
 
 
 def _resolve_procedural(spec, rng):
@@ -466,6 +495,8 @@ def _resolve_procedural(spec, rng):
             robber_hex = h
     if robber_hex is None:
         robber_hex = hex_ids[0]
+    if _is_auto_ports(spec):
+        geo.add_edge_ports(board, _thematic_ports(board, hexes))
     return {"geo": board, "hexes": hexes, "robber_hex": robber_hex, "spec": spec}
 
 
@@ -495,6 +526,8 @@ def _resolve_explicit(spec, rng):
         robber_hex = robber
     if robber_hex is None:
         robber_hex = board["hexes"][0]["id"]
+    if _is_auto_ports(spec):
+        geo.add_edge_ports(board, _thematic_ports(board, hexes))
     return {"geo": board, "hexes": hexes, "robber_hex": robber_hex, "spec": spec}
 
 

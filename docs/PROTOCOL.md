@@ -97,7 +97,7 @@ standard 19-hex island.
   "deserts": null,                   // procedural: desert count override
   // -- content mode C: a fully explicit layout --
   "tiles": [ { "q": 0, "r": 0, "terrain": "forest", "number": 8 }, ... ],
-  // -- ports (optional): omit to auto-spread; [] for none; or a type list --
+  // -- ports (optional): omit for THEMATIC placement; [] for none; or a type list --
   "ports": [ "3:1", "wheat", "ore", ... ],
   // -- or pin ports to exact coastal hex edges (what the map editor emits) --
   // dir 0-5 counts from the east-facing edge, clockwise (toward the southeast).
@@ -105,8 +105,12 @@ standard 19-hex island.
   "robber": { "q": 0, "r": 0 }       // optional robber start (default: a desert)
 }
 ```
-Port markers always extend outward away from the owning land tile, so badges
-never overlap the hex artwork.
+When ports are omitted they're placed **thematically, based on the tiles**: each
+2:1 resource port sits on a coastal edge of a tile that produces that resource
+(one per resource), generic 3:1 ports fill the rest, and the total scales with the
+number of land tiles so small islands aren't over-ported. Port markers always
+extend outward away from the owning land tile, so badges never overlap the hex
+artwork.
 Terrains: `forest|hills|pasture|fields|mountains|desert|gold|beans`. `gold` yields
 a random resource when rolled; `beans` pays beans (Gamble mode only). Number
 tokens are 2–12 (never 7); deserts have no number. Bad specs are rejected with a
@@ -179,7 +183,9 @@ play your own hand heads-up against the dealer.
   "shoeLeft": 300, "decks": 6, "seen": ["KS","7S",...],   // dealt cards for counting (face-down dealer hole cards are excluded)
   "mood": "happy|sad|excited|thankful|neutral|dealing",   // the 8-bit dealer's mood toward you
   "message": "Nicely done!",                              // the dealer's latest line
-  "chat": [ { "from": "<playerId>|dealer", "name": "Ada", "text": "hi!" }, ... ],  // shared table talk (last 40)
+  // shared table talk (last 40). Each line has an `id`; dealer lines carry the
+  // `dealer` sprite ("m" Marv / "f" Bella) that spoke; player lines have dealer:null.
+  "chat": [ { "id": 7, "from": "<playerId>|dealer", "name": "Ada", "text": "hi!", "dealer": null }, ... ],
   "canBet": true,
   "seats": [ { "id","name","color","you","state","bet","net",
                "hands": [ { "cards":["AH","KD"], "value":21, "result":"blackjack", "bust":false } ] } ],
@@ -284,11 +290,36 @@ Casino / beans (allowed off-turn, once the game is underway):
 - `{ "type": "bj_bet", "amount": 5 }`                             // deal a blackjack hand (>= minBet beans)
 - `{ "type": "bj_hit" }` · `{ "type": "bj_stand" }` · `{ "type": "bj_double" }` · `{ "type": "bj_split" }`
 - `{ "type": "bj_surrender" }`                                    // forfeit opening two cards; half the bet back
-- `{ "type": "bj_tip", "amount": 2 }`                             // tip the dealer (a beans sink; the dealer cheers)
-- `{ "type": "bj_chat", "text": "should I hit?" }`                // table talk: the dealer answers (rule-based, in-process — no GPU/network)
+- `{ "type": "bj_tip", "amount": 2 }`                             // tip the dealer; warms their personality and funds bean rebates
+- `{ "type": "bj_chat", "text": "should I hit?", "dealer": "m" }` // table talk; `dealer` ("m"/"f") picks who answers (default "m")
+
+The dealer answers instantly from an in-process rule-based brain (no GPU/network):
+basic-strategy hints during a live hand, and small talk that grows funnier (Marv)
+or more flirtatious (Bella) the more you've tipped. A well-tipped dealer may also
+slip a few beans back into your pouch — framed as a tip, capped so you never get
+back more than you've given. If the server is configured with an external chat
+model (see env vars below), that instant reply is then *upgraded in place* by the
+model a moment later (its line is matched by message `id`); with no model set, the
+rule-based reply is all anyone ever sees.
 
 Robber / 7:
 - `{ "type": "discard", "resources": { "wood": 2, "ore": 1 } }`   // sum == mustDiscard
 - `{ "type": "move_robber", "hex": <hexId>, "target": "<playerId>"|null }`
-```
-```
+
+## Server environment variables
+
+All optional — the server runs fully featured with none of them set.
+
+| Variable | Purpose |
+| --- | --- |
+| `HEXARA_PASSWORD` | If set, players must supply this access code to join (gates internet exposure). |
+| `HEXARA_SEED` | Integer RNG seed. Fixes board generation, dice, the shoe and steals so games are reproducible (used by the deterministic server test). Unset → a fresh random game each time. |
+| `HEXARA_CHAT_URL` | OpenAI-compatible `/chat/completions` endpoint for the optional dealer chat model. **Unset → the model is disabled** and only the instant rule-based dealer replies are used. |
+| `HEXARA_CHAT_KEY` | Bearer token for that endpoint (sent as `Authorization: Bearer …`). Optional. |
+| `HEXARA_CHAT_MODEL` | Model name to request (default `gpt-4o-mini`). |
+| `HEXARA_CHAT_TIMEOUT` | Seconds to wait for the model before giving up and keeping the rule-based line (default `8`). |
+
+The chat model is called on a background daemon thread and never holds the room
+lock during the network request, so a slow or failing endpoint can never stall
+the table — players always get the instant reply first, upgraded in place only if
+the model answers in time.

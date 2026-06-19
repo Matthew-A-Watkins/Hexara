@@ -7,12 +7,14 @@ layer writes it to that client's SSE stream.
 """
 
 import hmac
+import json
 import os
 import secrets
 import threading
 import time
+import urllib.request
 
-from engine import bot, views, constants as C, maps
+from engine import bot, views, constants as C, maps, dealer_chat
 from engine.game import Game, GameError, validate_config, normalize_rules, rule_bounds
 from server import leaderboard
 
@@ -25,6 +27,51 @@ ACCESS_PASSWORD = (os.environ.get("HEXARA_PASSWORD") or "").strip()
 MAX_ROOMS = 300                  # cap live rooms to bound memory
 ROOM_IDLE_SECONDS = 1800         # reap rooms with no connected humans after 30 min
 
+
+class _ChatLLM:
+    """Optional external chat model for the dealer. Entirely opt-in: with no
+    HEXARA_CHAT_URL set it stays disabled and the instant, rule-based reply from
+    engine.dealer_chat is the only thing players ever see. When configured, it
+    calls an OpenAI-compatible /chat/completions endpoint over the stdlib (no pip
+    deps) on a daemon thread and *upgrades* the already-sent reply in place."""
+
+    def __init__(self):
+        self.url = (os.environ.get("HEXARA_CHAT_URL") or "").strip()
+        self.key = (os.environ.get("HEXARA_CHAT_KEY") or "").strip()
+        self.model = (os.environ.get("HEXARA_CHAT_MODEL") or "gpt-4o-mini").strip()
+        try:
+            self.timeout = max(1.0, float(os.environ.get("HEXARA_CHAT_TIMEOUT") or "8"))
+        except ValueError:
+            self.timeout = 8.0
+        self.enabled = bool(self.url)
+
+    def complete(self, system, history):
+        """Return the model's reply text, or None on any failure (so the caller
+        simply keeps the rule-based line). Never raises."""
+        if not self.enabled:
+            return None
+        payload = json.dumps({
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}] + list(history),
+            "max_tokens": 80,
+            "temperature": 0.9,
+        }).encode("utf-8")
+        req = urllib.request.Request(self.url, data=payload, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if self.key:
+            req.add_header("Authorization", "Bearer " + self.key)
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            choice = (data.get("choices") or [{}])[0]
+            text = ((choice.get("message") or {}).get("content") or "").strip()
+            return text[:240] or None
+        except Exception:
+            return None
+
+
+_CHAT_LLM = _ChatLLM()
+
 _rooms = {}
 _rooms_lock = threading.Lock()
 _reaper_started = False
@@ -32,6 +79,18 @@ _reaper_started = False
 
 def requires_password():
     return bool(ACCESS_PASSWORD)
+
+
+def _fixed_seed():
+    """A fixed RNG seed for new games when HEXARA_SEED is set (deterministic
+    tests); otherwise None for a fresh random board each game."""
+    raw = os.environ.get("HEXARA_SEED")
+    if raw is None or raw.strip() == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 
 def _check_password(supplied):
@@ -229,7 +288,7 @@ def handle_lobby(room, pid, action):
                 raise GameError("Need at least one human player.")
             plist = [{"id": p["id"], "name": p["name"], "color": p["color"]}
                      for p in room.players]
-            room.game = Game(plist, config=room.config)
+            room.game = Game(plist, config=room.config, seed=_fixed_seed())
             _start_bot_thread(room)
         else:
             raise GameError("Unknown lobby action: %r" % t)
@@ -248,14 +307,47 @@ def handle_action(room, pid, action):
     if t.startswith("lobby_"):
         handle_lobby(room, pid, action)
         return
+    llm_job = None
     with room.lock:
         room.touched = time.monotonic()
         if room.game is None:
             raise GameError("The game hasn't started yet.")
-        room.game.apply(pid, action)
+        result = room.game.apply(pid, action)
         _maybe_record_win(room)
+        # If an external chat model is configured, prepare to upgrade the dealer's
+        # instant reply. We build the prompt here (under the lock, reading a
+        # consistent snapshot) but make the network call off-lock so the room
+        # never blocks on it.
+        if t == "bj_chat" and _CHAT_LLM.enabled and isinstance(result, dict):
+            msg = result.get("message") or {}
+            mid = msg.get("id")
+            if mid is not None:
+                dealer = msg.get("dealer") or "m"
+                llm_job = {
+                    "msg_id": mid,
+                    "system": dealer_chat.system_prompt(room.game, pid, dealer,
+                                                        result.get("grant", 0)),
+                    "history": dealer_chat.history_for(room.game, exclude_id=mid),
+                }
         broadcast(room)
     room.bot_event.set()
+    if llm_job is not None:
+        threading.Thread(target=_llm_reply_worker, args=(room, llm_job),
+                         daemon=True).start()
+
+
+def _llm_reply_worker(room, job):
+    """Off-lock: call the external model, then (if it answered and the message is
+    still on the board) rewrite that dealer line in place and rebroadcast. Any
+    failure is silently ignored — the instant rule-based reply already stands."""
+    text = _CHAT_LLM.complete(job["system"], job["history"])
+    if not text:
+        return
+    with room.lock:
+        g = room.game
+        changed = bool(g and g.set_chat_text(job["msg_id"], text))
+    if changed:
+        broadcast(room)
 
 
 def _maybe_record_win(room):

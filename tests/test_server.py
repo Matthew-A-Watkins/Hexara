@@ -92,8 +92,12 @@ def wait_for(fn, timeout=8.0, interval=0.05):
 
 
 def main():
+    # A fixed seed makes the server's games deterministic, so the gameplay
+    # checks below (which need real production to afford a build) never flake.
+    env = dict(os.environ, HEXARA_SEED="20240613")
     proc = subprocess.Popen([sys.executable, "-m", "server.app", str(PORT)],
-                            cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                            cwd=ROOT, env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     failures = []
 
     def check(cond, msg):

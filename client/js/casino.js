@@ -99,7 +99,7 @@
         if (!v) return;
         self._chatInput.value = "";
         if (window.Sound) Sound.play("card");
-        Net.sendAction({ type: "bj_chat", text: v });
+        Net.sendAction({ type: "bj_chat", text: v, dealer: self._sprite });
       }
       sendB.addEventListener("click", sendChat);
       this._chatInput.addEventListener("keydown", function (e) { if (e.key === "Enter") sendChat(); });
@@ -272,11 +272,21 @@
       return this._sprite === "f" ? "Bella" : "Marv";
     },
 
+    // Each dealer message remembers which dealer said it, so a table mixing
+    // Marv and Bella shows the right name per line (not just your current pick).
+    _msgDealerName: function (m) {
+      if (m.dealer === "f") return "Bella";
+      if (m.dealer === "m") return "Marv";
+      return this._dealerName();
+    },
+
     _renderChat: function (c) {
       var log = this._chatLog;
       if (!log) return;
       var msgs = c.chat || [];
-      var sig = msgs.length + "|" + (msgs.length ? msgs[msgs.length - 1].text : "");
+      // Include each id so an async (LLM) rewrite of an existing line still
+      // triggers a rebuild even though the message count is unchanged.
+      var sig = msgs.map(function (m) { return (m.id || 0) + ":" + m.text; }).join("|");
       if (this._chatSig === sig) return;  // cheap diff: only rebuild on change
       this._chatSig = sig;
       clear(log);
@@ -288,7 +298,7 @@
       msgs.forEach(function (m) {
         var dealer = m.from === "dealer";
         var line = el("div", "chat-line" + (dealer ? " dealer" : ""));
-        line.appendChild(el("strong", null, (dealer ? self._dealerName() : m.name) + ": "));
+        line.appendChild(el("strong", null, (dealer ? self._msgDealerName(m) : m.name) + ": "));
         line.appendChild(document.createTextNode(m.text));
         log.appendChild(line);
       });
@@ -606,8 +616,12 @@
       if (st === "done" && this._lastBjState !== "done") {
         var net = c.table.net || 0;
         if (window.Sound) Sound.play(net > 0 ? "bjwin" : (net < 0 ? "bust" : "card"));
+      } else if (this._lastBeans != null && c.beans > this._lastBeans && window.Sound) {
+        // Beans climbed without a hand settling — the dealer slipped you a tip.
+        Sound.play("cash");
       }
       this._lastBjState = st;
+      this._lastBeans = c.beans;
     },
   };
 

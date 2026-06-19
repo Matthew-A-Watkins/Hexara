@@ -493,14 +493,18 @@ def bank_and_port_trade():
     g.apply("A", {"type": "bank_trade", "give": "wood", "receive": "ore"})
     assert g.players["A"]["resources"]["wood"] == 0
     assert g.players["A"]["resources"]["ore"] == 1
-    # give A a 2:1 wood port and verify the better ratio
-    woodport = next(p for p in GEOMETRY["ports"] if p["type"] == "wood")
-    g.buildings[woodport["vertices"][0]] = {"type": "settlement", "owner": "A"}
-    assert g._port_ratios("A")["wood"] == 2
-    g.players["A"]["resources"] = {"wood": 2, "brick": 0, "sheep": 0, "wheat": 0, "ore": 0}
-    g.apply("A", {"type": "bank_trade", "give": "wood", "receive": "brick"})
-    assert g.players["A"]["resources"]["brick"] == 1
-    assert g.players["A"]["resources"]["wood"] == 0
+    # give A a 2:1 port and verify the better ratio (ports are placed by tile,
+    # so read an actual resource port off the game board)
+    port = next(p for p in g.geo["ports"] if p["type"] in C.RESOURCES)
+    res = port["type"]
+    recv = next(r for r in C.RESOURCES if r != res)
+    g.buildings[port["vertices"][0]] = {"type": "settlement", "owner": "A"}
+    assert g._port_ratios("A")[res] == 2
+    g.players["A"]["resources"] = {r: 0 for r in C.RESOURCES}
+    g.players["A"]["resources"][res] = 2
+    g.apply("A", {"type": "bank_trade", "give": res, "receive": recv})
+    assert g.players["A"]["resources"][recv] == 1
+    assert g.players["A"]["resources"][res] == 0
 
 
 @test
@@ -1273,6 +1277,120 @@ def production_log_reflects_actual_grants():
     # single claimant short -> A actually gets 1 (min(2, bank=1)); the log must say 1, not 2
     assert g.players["A"]["resources"]["wood"] == 1
     assert "1 wood" in g.log[-1] and "2 wood" not in g.log[-1]
+
+
+# ------------------------------------------ wave 7: thematic ports + dealer brain
+@test
+def thematic_ports_are_tile_based():
+    import random
+    from engine import maps
+    board = maps.resolve({"radius": 2}, random.Random(7))
+    geo, hexes = board["geo"], board["hexes"]
+    ports = geo["ports"]
+    assert len(ports) == 9, "19 land tiles -> round(19/2.2) = 9 ports, got %d" % len(ports)
+    res_ports = [p for p in ports if p["type"] in C.RESOURCES]
+    assert res_ports, "expected some 2:1 resource ports"
+    # at most one 2:1 per resource (no two wood ports, etc.)
+    assert len(res_ports) == len(set(p["type"] for p in res_ports))
+    for p in ports:
+        e = geo["edges"][p["edge"]]
+        assert e["coastal"], "every thematic port sits on a coastal edge"
+        if p["type"] in C.RESOURCES:
+            tile = hexes[e["hexes"][0]]
+            assert C.TERRAIN_RESOURCE.get(tile["terrain"]) == p["type"], \
+                "a %s port must hug a %s-producing tile" % (p["type"], p["type"])
+    assert any(p["type"] == C.PORT_GENERIC for p in ports), "expected generic 3:1 ports too"
+
+
+@test
+def thematic_port_count_scales_with_land():
+    import random
+    from engine import maps
+    counts = {radius: len(maps.resolve({"radius": radius}, random.Random(3))["geo"]["ports"])
+              for radius in (1, 2, 3)}
+    # smaller islands get fewer ports, so they aren't over-ported
+    assert counts[1] < counts[2] < counts[3], counts
+
+
+@test
+def chat_messages_carry_id_and_dealer():
+    g = Game(PLAYERS, seed=5)
+    auto_setup(g)
+    g.apply("A", {"type": "bj_chat", "text": "hi", "dealer": "f"})
+    you, dealer = g.bj_chat[-2], g.bj_chat[-1]
+    assert you["from"] == "A" and you["dealer"] is None
+    assert dealer["from"] == "dealer" and dealer["dealer"] == "f" and dealer["name"] == "Bella"
+    assert isinstance(you["id"], int) and dealer["id"] == you["id"] + 1
+    # the other dealer answers under his own name
+    g.apply("B", {"type": "bj_chat", "text": "yo", "dealer": "m"})
+    assert g.bj_chat[-1]["name"] == "Marv" and g.bj_chat[-1]["dealer"] == "m"
+    # an unknown dealer code falls back to Marv, never crashes
+    g.apply("A", {"type": "bj_chat", "text": "hello", "dealer": "zzz"})
+    assert g.bj_chat[-1]["dealer"] == "m"
+    ids = [m["id"] for m in g.bj_chat]
+    assert ids == sorted(ids) and len(set(ids)) == len(ids), "ids strictly increase"
+
+
+@test
+def dealer_grants_are_tips_never_farmed():
+    import random
+    g = Game(PLAYERS, seed=99)
+    auto_setup(g)
+    g.players["A"]["beans"] = 1000
+    g.apply("A", {"type": "bj_tip", "amount": 100})  # warms the dealer to rapport 3
+    assert g.players["A"]["bj_tipped"] == 100
+    g.chat_rng = random.Random(0)  # deterministic flavour + grants
+    before = g.players["A"]["beans"]
+    warm = ["thanks!", "you're lovely", "haha good one", "feeling lucky", "hello again"]
+    for i in range(200):
+        g.apply("A", {"type": "bj_chat", "text": warm[i % len(warm)]})
+    given = g.players["A"]["bj_dealer_given"]
+    assert given > 0, "a warmed-up, tipping player should get some beans back"
+    assert given <= g.players["A"]["bj_tipped"], "the dealer never gifts more than you tipped"
+    assert g.players["A"]["beans"] == before + given, "chat itself costs/credits nothing but grants"
+    # a player who never tipped has no rebate budget, so never receives a grant
+    g.chat_rng = random.Random(0)
+    for i in range(100):
+        g.apply("C", {"type": "bj_chat", "text": warm[i % len(warm)]})
+    assert g.players["C"]["bj_dealer_given"] == 0
+
+
+@test
+def dealer_personality_warms_with_tips():
+    from engine import dealer_chat as dc
+    assert (dc._rapport(0), dc._rapport(5), dc._rapport(30), dc._rapport(100)) == (0, 1, 2, 3)
+    import random
+    rng = random.Random(1)
+    # at zero rapport a base line is never embellished
+    assert dc._flair("Deal?", "f", 0, rng, social=True) == "Deal?"
+    # a well-tipped table eventually draws out flirtation (Bella) and jokes (Marv)
+    flirty = any(dc._flair("Deal?", "f", 3, random.Random(s), social=True) != "Deal?"
+                 for s in range(40))
+    funny = any(dc._flair("Deal?", "m", 3, random.Random(s), social=True) != "Deal?"
+                for s in range(40))
+    assert flirty and funny
+
+
+@test
+def llm_chat_helpers_and_async_rewrite():
+    from engine import dealer_chat
+    g = Game(PLAYERS, seed=6)
+    auto_setup(g)
+    info = g.apply("A", {"type": "bj_chat", "text": "hey there", "dealer": "f"})
+    assert info["message"]["id"] == g.bj_chat[-1]["id"]
+    mid = info["message"]["id"]
+    # the history we'd send a model ends on the player's line (placeholder excluded)
+    hist = dealer_chat.history_for(g, exclude_id=mid)
+    assert hist and hist[-1] == {"role": "user", "content": "hey there"}
+    assert all(h["content"] != info["message"]["text"] for h in hist)
+    # the system prompt is a pure string carrying persona + a tip acknowledgement
+    sp = dealer_chat.system_prompt(g, "A", "f", grant=4)
+    assert "Bella" in sp and "flirt" in sp.lower() and "4 beans" in sp
+    assert "Marv" in dealer_chat.system_prompt(g, "A", "m", grant=0)
+    # an async backend rewrites that exact line in place; unknown ids are no-ops
+    assert g.set_chat_text(mid, "Hey yourself, sugar. 😘") is True
+    assert g.bj_chat[-1]["text"] == "Hey yourself, sugar. 😘"
+    assert g.set_chat_text(9_999_999, "nope") is False
 
 
 # --------------------------------------------------------------------- runner

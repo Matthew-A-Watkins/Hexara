@@ -45,6 +45,31 @@ HEXARA_PASSWORD=ourgamenight py -3 share.py
 The join screen will then require that code. (Without it, your room code already
 keeps strangers out of *your* game — the access code just gates the whole server.)
 
+### Want a chattier dealer? (optional AI)
+The casino dealer always answers from a built-in, offline brain. If you'd like
+richer small talk, point the server at any OpenAI-compatible chat endpoint and it
+will *upgrade* the dealer's replies on the fly (it still falls back to the built-in
+replies instantly, and whenever the model is slow, fails, or isn't set):
+
+```powershell
+# PowerShell
+$env:HEXARA_CHAT_URL   = "https://api.openai.com/v1/chat/completions"
+$env:HEXARA_CHAT_KEY   = "sk-..."        # your API key
+$env:HEXARA_CHAT_MODEL = "gpt-4o-mini"   # optional (this is the default)
+py -3 share.py
+```
+```bash
+# macOS/Linux
+HEXARA_CHAT_URL=https://api.openai.com/v1/chat/completions \
+HEXARA_CHAT_KEY=sk-... py -3 share.py
+```
+It's entirely opt-in and runs off the game thread, so a flaky endpoint never
+stalls the table. (Costs are tiny — replies are capped at ~80 tokens — but they're
+yours, so a key is only worth adding if you want the extra flavour.)
+
+For a fully reproducible game (same board, dice and shoe every launch — handy for
+debugging or a fair rematch), set `HEXARA_SEED` to any integer.
+
 ## The options compared
 
 | Option | Cost | Your effort | Friends' effort | Always-on? | Safe? |

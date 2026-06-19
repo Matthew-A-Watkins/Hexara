@@ -72,9 +72,11 @@ table; non-hosts see a read-only summary.
 - **Custom maps:** open the **Map Editor** to draw any board. A visual canvas
   (click hexes to paint terrain, stamp number tokens, place the robber, carve the
   island shape) stays in sync with a live **JSON** definition you can edit or
-  paste directly. Ports auto-place around the coast, can be turned off, or —
-  with the **Port brushes** — pinned to exact coastal edges (3:1 or any 2:1;
-  click the same edge again to remove).
+  paste directly. Ports auto-place **thematically** — each 2:1 resource port lands
+  on the coast of a tile that produces it, generic 3:1 ports fill the rest, and the
+  count scales with the number of land tiles so small islands aren't over-ported.
+  They can also be turned off, or — with the **Port brushes** — pinned to exact
+  coastal edges (3:1 or any 2:1; click the same edge again to remove).
 - **Rule tuning:** victory points to win, the discard threshold, max
   roads/settlements/cities, the bank size, the casino bean rates, and the
   **development-deck size** (×25 cards).
@@ -100,10 +102,15 @@ refused with a clear message before the game can start. The full format is in
 - **Casino** — a 🎰 shared table you can play any time, even on others' turns,
   hosted by an animated **8-bit dealer** (switch between **Marv** and **Bella**)
   who deals the cards, reacts to your run (congratulates wins, sympathizes with
-  losses), beams when you **tip**, and **chats back**: ask about rates, your
-  hand ("should I hit?" gets real basic-strategy advice), or just talk — the
-  replies come from a tiny rule-based brain in the engine (CPU-only, no GPU, no
-  network). The counting aid shows the live **Hi-Lo running & true count** with
+  losses), and **chats back**: ask about rates, your hand ("should I hit?" gets
+  real basic-strategy advice), or just talk. The dealer has a **personality that
+  warms as you tip** — Marv gets funnier, Bella gets more flirtatious — and a
+  generous tipper may find the dealer **slipping a few beans back** into their
+  pouch (a friendly rebate, never more than you've tipped). Replies come instantly
+  from a rule-based brain in the engine (CPU-only, no GPU, no network); if the
+  server is pointed at an external chat model (`HEXARA_CHAT_URL`), that line is
+  quietly **upgraded in place** a moment later — and it still works fully with no
+  model configured. The counting aid shows the live **Hi-Lo running & true count** with
   a per-rank tally, and rolling a 7 boots you from the table to go place the
   robber.
   Everyone shares one **6-deck shoe** with ~5-deck penetration, so card counting

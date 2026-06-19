@@ -106,6 +106,8 @@ class Game:
                 "beans": 0,                # gambling currency (never negative)
                 "bought_vp": 0,            # victory points purchased with beans
                 "bj": None,                # blackjack table state (lazy)
+                "bj_tipped": 0,            # total beans this player has tipped the dealer
+                "bj_dealer_given": 0,      # beans the dealer has gifted back (capped by tipped)
             }
 
         self._make_board(config.get("map") or {})
@@ -145,7 +147,12 @@ class Game:
         self.bj_tips = 0          # total beans tipped to the dealer (a bean sink)
         self.bj_count_bias = 0.0  # gamble mode: tips nudge the running count
         self.bj_message = "Welcome to the table! Place a bet."
-        self.bj_chat = []         # shared table talk: {"from", "name", "text"}
+        self.bj_chat = []         # shared table talk: {"id","from","name","text","dealer"}
+        self.bj_chat_next = 1     # chat message id sequence (for async LLM replies)
+        # A SEPARATE RNG for chat flavour/grants: drawing from it never advances
+        # self.rng, so chatter can't perturb the dice or the shoe. Derived from the
+        # game seed (distinct stream) so seeded games stay reproducible.
+        self.chat_rng = random.Random((seed ^ 0x5EED) if isinstance(seed, int) else seed)
         self.log = []
         self._log("Game started. Place your first settlement.")
 
@@ -383,8 +390,9 @@ class Game:
             "bj_chat": self._h_bj_chat,
         }.get(action.get("type"))
         self._require(handler is not None, "Unknown action: %r" % action.get("type"))
-        handler(pid, action)
+        result = handler(pid, action)
         self._check_win(pid)
+        return result  # most handlers return None; bj_chat returns its reply info
 
     # ------------------------------------------------------------- setup phase
     def _h_setup_settlement(self, pid, action):
@@ -1121,6 +1129,7 @@ class Game:
                       "You only have %d beans." % self.players[pid]["beans"])
         self.players[pid]["beans"] -= amount
         self.bj_tips += amount
+        self.players[pid]["bj_tipped"] += amount  # the dealer remembers who tips
         self._bj(pid)["mood"] = "thankful"
         extra = ""
         if self.gamble_mode:
@@ -1136,15 +1145,43 @@ class Game:
 
     def _h_bj_chat(self, pid, action):
         """Table talk: the player says something, the dealer answers in kind.
-        Pure pattern-matching (engine.dealer_chat) — no GPU, no network."""
+        Pattern-matching (engine.dealer_chat) — instant, no network — and the
+        dealer may slip the player a few beans back (framed as a tip). An
+        optional external model can replace the dealer's text afterward (server)."""
         self._require_casino(pid)
         text = str(action.get("text") or "").strip()[:200]
         self._require(bool(text), "Say something first.")
-        self.bj_chat.append({"from": pid, "name": self._name(pid), "text": text})
-        self.bj_chat.append({"from": "dealer", "name": "Dealer",
-                             "text": dealer_chat.reply(self, pid, text)})
+        dealer = action.get("dealer") if action.get("dealer") in ("m", "f") else "m"
+        reply_text, grant = dealer_chat.reply(self, pid, text, dealer)
+        if grant > 0:
+            self.players[pid]["beans"] += grant
+            self.players[pid]["bj_dealer_given"] += grant
+        self._add_chat(pid, self._name(pid), text, None)
+        msg = self._add_chat("dealer", dealer_chat.DEALER_NAMES.get(dealer, "Dealer"),
+                             reply_text, dealer)
+        if grant > 0:
+            self._log("The dealer tipped %s %d beans." % (self._name(pid), grant))
+        # Hand the server what it needs to (optionally) upgrade this reply with an
+        # external model: which message to rewrite, who/which dealer, the grant.
+        return {"message": msg, "grant": grant, "dealer": dealer, "pid": pid}
+
+    def _add_chat(self, frm, name, text, dealer):
+        mid = self.bj_chat_next
+        self.bj_chat_next += 1
+        msg = {"id": mid, "from": frm, "name": name, "text": text, "dealer": dealer}
+        self.bj_chat.append(msg)
         if len(self.bj_chat) > 40:
             self.bj_chat = self.bj_chat[-40:]
+        return msg
+
+    def set_chat_text(self, msg_id, text):
+        """Replace a chat message's text by id (used by the optional async LLM
+        reply). No-op if the message has scrolled off."""
+        for m in self.bj_chat:
+            if m.get("id") == msg_id:
+                m["text"] = text
+                return True
+        return False
 
     def _bj_settle(self, hand, dealer_total, dealer_bj):
         """Return the beans paid back for this hand (0 = lost the wager)."""
